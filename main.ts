@@ -127,6 +127,21 @@ if (problems.length > 0) {
   process.exit();
 }
 
+// A person who finds this file should be able to learn what it does without reading it: --help
+// says the three things it can do and nothing more.
+if (process.argv.includes('--help') || process.argv.includes('-h')) {
+  console.log(`main.ts: hands the LUMENFALL entry in.
+
+  node main.ts                     copy game/ and screenshots/ to /output, and write its dossier
+  MAKEFUN_OUTPUT_DIR=out node main.ts    the same, into out/ instead of /output
+  node main.ts --check             verify the entry without keeping anything
+  node main.ts --help              this
+
+The game itself is game/index.html and the modules beside it: open it through any static
+server, or run "node serve.ts" and browse to http://localhost:8080.`);
+  process.exit(0);
+}
+
 if (process.argv.includes('--check')) {
   // Verify by doing the hand-in into a throwaway directory: the real thing, then thrown away.
   const check = mkdtempSync(join(here, '.staging-'));
