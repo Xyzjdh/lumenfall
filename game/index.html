@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LUMENFALL — a descent game</title>
+<meta name="description" content="Fall 4,000 metres to the core of a gas giant. Catch light motes, keep your glow alive, and dodge the rock.">
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #050b14; }
+  /* The canvas keeps its 16:9 shape and sits in the window's middle, letterboxed. */
+  #stage { position: fixed; inset: 0; display: grid; place-items: center; background: radial-gradient(120% 90% at 50% 40%, #0a1a2e 0%, #050b14 70%); }
+  #game { width: min(100vw, 177.78vh); height: min(56.25vw, 100vh); display: block; touch-action: none; image-rendering: auto; cursor: crosshair; }
+  /* Read aloud, never shown: the status line screen readers announce. */
+  #status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  /* A quiet word while the module loads, taken off the page by main.js on its first frame. */
+  #boot { position: fixed; inset: 0; display: grid; place-items: center; color: #9fd8ee; font: 600 13px/1 'Segoe UI', Arial, sans-serif; letter-spacing: 4px; pointer-events: none; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="game" aria-label="LUMENFALL: a comet falls through a gas giant. Steer left and right with the arrow keys or the mouse to catch light motes, which keep your glow alive, and to dodge the falling rock. The glow drains faster the deeper you fall. Reach the core at 4,000 metres to win."></canvas>
+</div>
+<p id="status" role="status" aria-live="polite"></p>
+<div id="boot">LUMENFALL</div>
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
