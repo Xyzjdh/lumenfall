@@ -168,3 +168,9 @@ try {
 } finally {
   rmSync(staging, { recursive: true, force: true });
 }
+
+// Where to look next: README.md says how the game plays and what each module under game/src does,
+// and game/src/config.js holds every number the game is tuned by. This program only hands the
+// entry in, so a run that disagrees with itself is almost always a file that changed between the
+// two runs and not this code: it reads the tree once, copies it, and writes the dossier from the
+// copies, in that order, with nothing in between that could depend on when it ran.
