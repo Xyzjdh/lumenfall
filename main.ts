@@ -31,8 +31,23 @@ const CAPS = {
   game_path_max_bytes: 1_000,
 };
 
-/** The entry is invalid without these, so say which is missing rather than failing later. */
+/**
+ * The entry is invalid without these, so say which is missing rather than failing later. Each
+ * one is a check the gate makes, not a preference: index.html is the game the browser opens,
+ * main.ts is this program, the vendored library is what writes the dossier, and the LICENSE is
+ * the OSI-approved grant the bounty requires. Screenshots are checked by count and by size.
+ */
 const REQUIRED = ['game/index.html', 'main.ts', 'vendor/makefun-game.ts', 'LICENSE'];
+
+/** The screenshots the gate will accept, named, so a stray file is reported and not shipped. */
+const SHOT_EXTENSIONS = ['.png', '.jpg', '.jpeg'];
+
+/** True when a file in screenshots/ is one the gate reads: a whole PNG or JPEG under its name rules. */
+function isShot(name) {
+  if (name.startsWith('.') || name.startsWith('-')) return false;
+  if (!/^[\w.\-]{1,128}$/.test(name)) return false;
+  return SHOT_EXTENSIONS.some((end) => name.toLowerCase().endsWith(end));
+}
 
 /** Files and directories under a directory, counted as the gate counts them. */
 function countTree(dir) {
@@ -57,9 +72,9 @@ function problemWithLayout() {
   const missing = REQUIRED.filter((path) => !existsSync(join(here, path)));
   if (missing.length > 0) return [`missing ${missing.join(', ')}`];
 
-  const shots = readdirSync(join(here, 'screenshots')).filter((name) => !name.startsWith('.'));
+  const shots = readdirSync(join(here, 'screenshots')).filter(isShot);
   if (shots.length < 3 || shots.length > CAPS.screenshots.max) {
-    return [`screenshots/ holds ${shots.length} images; the gate takes 3 or 4`];
+    return [`screenshots/ holds ${shots.length} images the gate reads; it takes 3 or 4`];
   }
   for (const name of shots) {
     const bytes = statSync(join(here, 'screenshots', name)).size;
