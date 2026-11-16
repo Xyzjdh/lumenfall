@@ -58,6 +58,20 @@ export function createAudio() {
     osc.stop(when + length + 0.05);
   }
 
+  /**
+   * The noise's own little generator. A thud is a texture, not an event, so it is drawn from a
+   * fixed seed rather than from Math.random: the same hit sounds the same twice, and a run that
+   * is recorded stays the run that was played.
+   */
+  let noiseState = 0x9e3779b9;
+  function noise() {
+    noiseState = (noiseState + 0x9e3779b9) >>> 0;
+    let z = noiseState;
+    z = Math.imul(z ^ (z >>> 15), z | 1) >>> 0;
+    z ^= (z + Math.imul(z ^ (z >>> 7), z | 61)) >>> 0;
+    return ((z ^ (z >>> 14)) >>> 0) / 2147483648 - 1;
+  }
+
   /** A short noise burst, for rock and wall: a thud rather than a pitch. */
   function thud(gain, length) {
     if (!ctx) return;
@@ -66,7 +80,7 @@ export function createAudio() {
     const data = buffer.getChannelData(0);
     for (let index = 0; index < frames; index += 1) {
       const decay = 1 - index / frames;
-      data[index] = (Math.random() * 2 - 1) * decay * decay;
+      data[index] = noise() * decay * decay;
     }
     const source = ctx.createBufferSource();
     source.buffer = buffer;

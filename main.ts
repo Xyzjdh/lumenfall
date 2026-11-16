@@ -4,10 +4,12 @@
 // screenshots into the output directory and writes the dossier the judge reads. That is all this
 // does, in three steps: validate the layout, copy, then build the dossier from what was copied.
 //
-// main.ts is that program. It runs on Node 22.13 or later with no dependency to install: game/ is
-// plain ES modules the browser loads itself, so nothing here builds or bundles anything, and the
-// only import is the vendored dossier library beside it. main.ts never reads /input and never
-// touches the network; every file it copies is already in the commit it was pushed with.
+// main.ts is that program. It runs on Node 22.13 or later with no dependency to install. The game
+// it hands in is two halves: game/src/*.js, which the browser loads itself, and game/core.wasm,
+// the compiled Rust that holds the rules (lumenfall-core/). Neither half is built here: the module
+// is committed, so this program only copies it, and the only import is the vendored dossier
+// library beside it. main.ts never reads /input and never touches the network; every file it
+// copies is already in the commit it was pushed with.
 //
 // The same main.ts runs twice in the grader, and the two runs must agree byte for byte, so nothing
 // below depends on the clock, on a random seed, or on the order a directory happens to list in.
@@ -19,7 +21,7 @@
 // The dossier is written by the vendored library, never by hand: the gate builds it again from
 // the same files and refuses the entry unless the two are byte for byte equal.
 
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildDossier } from './vendor/makefun-game.ts';
@@ -45,7 +47,22 @@ const CAPS = {
  * main.ts is this program, the vendored library is what writes the dossier, and the LICENSE is
  * the OSI-approved grant the bounty requires. Screenshots are checked by count and by size.
  */
-const REQUIRED = ['game/index.html', 'main.ts', 'vendor/makefun-game.ts', 'LICENSE'];
+const REQUIRED = ['game/index.html', 'game/core.wasm', 'main.ts', 'vendor/makefun-game.ts', 'LICENSE'];
+
+/**
+ * The simulation core is a WebAssembly module, and the page refuses to start without it, so the
+ * hand-in checks it is one: the four magic bytes and the version word every module begins with.
+ * A file that is not a module would otherwise be copied happily and fail in the browser instead.
+ */
+function problemWithCore(dir) {
+  const path = join(dir, 'game', 'core.wasm');
+  const head = readFileSync(path).subarray(0, 8);
+  const magic = head.subarray(0, 4).toString('latin1');
+  if (magic !== '\0asm') return ['game/core.wasm is not a WebAssembly module'];
+  const version = head.readUInt32LE(4);
+  if (version !== 1) return [`game/core.wasm is version ${version}; the page speaks 1`];
+  return [];
+}
 
 /** The screenshots the gate will accept, named, so a stray file is reported and not shipped. */
 const SHOT_EXTENSIONS = ['.png', '.jpg', '.jpeg'];
@@ -88,6 +105,9 @@ function problemWithLayout() {
     const bytes = statSync(join(here, 'screenshots', name)).size;
     if (bytes > CAPS.screenshots.max_bytes) return [`screenshots/${name} is over 256 KiB`];
   }
+
+  const core = problemWithCore(here);
+  if (core.length > 0) return core;
 
   const game = countTree(join(here, 'game'));
   if (game.entries > CAPS.game_max_files) return [`game/ holds ${game.entries} entries, over ${CAPS.game_max_files}`];
@@ -137,8 +157,11 @@ if (process.argv.includes('--help') || process.argv.includes('-h')) {
   node main.ts --check             verify the entry without keeping anything
   node main.ts --help              this
 
-The game itself is game/index.html and the modules beside it: open it through any static
-server, or run "node serve.ts" and browse to http://localhost:8080.`);
+The game itself is game/index.html, the modules beside it and game/core.wasm, the Rust core
+compiled for the browser: open it through any static server, or run "node serve.ts" and browse
+to http://localhost:8080. The Rust is in lumenfall-core/: "cargo test" runs its tests,
+"cargo run --release --bin tune -- loop 50" searches its tuning, and
+"cargo run --release --bin review" runs the review bench over the sources.`);
   process.exit(0);
 }
 
@@ -169,8 +192,10 @@ try {
   rmSync(staging, { recursive: true, force: true });
 }
 
-// Where to look next: README.md says how the game plays and what each module under game/src does,
-// and game/src/config.js holds every number the game is tuned by. This program only hands the
-// entry in, so a run that disagrees with itself is almost always a file that changed between the
-// two runs and not this code: it reads the tree once, copies it, and writes the dossier from the
-// copies, in that order, with nothing in between that could depend on when it ran.
+// Where to look next: README.md says how the game plays and what each module under game/src does;
+// the rules are in lumenfall-core/src/world.rs and every number the game is tuned by is in
+// lumenfall-core/src/config.rs, where the harness can search over the lot of them. This program
+// only hands the entry in, so a run that disagrees with itself is almost always a file that
+// changed between the two runs and not this code: it reads the tree once, copies it, and writes
+// the dossier from the copies, in that order, with nothing in between that could depend on when
+// it ran.

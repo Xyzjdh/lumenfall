@@ -1,0 +1,24 @@
+[package]
+name = "lumenfall-core"
+version = "0.4.0"
+edition = "2021"
+description = "LUMENFALL's simulation core: the corridor, the comet and the glow, in Rust, compiled to WebAssembly."
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "tune"
+path = "src/bin/tune.rs"
+
+[[bin]]
+name = "review"
+path = "src/bin/review.rs"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

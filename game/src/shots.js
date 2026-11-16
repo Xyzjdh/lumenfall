@@ -9,8 +9,21 @@
 //   win      the core reached, with the run's ledger
 //   end      the glow run out, with the score and restart screen
 
-import { GOAL_DEPTH_M, PIXELS_PER_METRE, STEP, VIEW } from './config.js';
-import { EVENT_OVER, EVENT_STRATUM, EVENT_WIN, KIND_MOTE, KIND_STAR, screenY } from './world.js';
+import { GOAL_DEPTH_M, STEP, VIEW, STRATA } from './config.js';
+
+/**
+ * How far the depth is from the nearest stratum's edge. The palette blends across 130 m either
+ * side of an edge, so a frame caught inside that band is a frame of two strata at once — correct,
+ * but muddy in a still. A scene that wants a vivid shot waits until it is clear of both edges.
+ */
+function depthFromEdge(depth) {
+  let nearest = Infinity;
+  for (const stratum of STRATA) {
+    nearest = Math.min(nearest, Math.abs(depth - stratum.at));
+  }
+  return nearest;
+}
+import { EVENT_OVER, EVENT_STRATUM, EVENT_WIN, KIND_MOTE, KIND_STAR } from './world.js';
 
 /**
  * Light in the upper part of the frame. A screenshot of a run should show the thing the run is
@@ -21,8 +34,11 @@ function lightOnScreen(world) {
   let count = 0;
   for (const item of items) {
     if (item.kind !== KIND_MOTE && item.kind !== KIND_STAR) continue;
-    const y = screenY(item.at, state.depth);
-    if (y > VIEW.height * 0.42 && y < VIEW.height - 40) count += 1;
+    // Everything above the comet's own line and below the very top of the frame: the light a
+    // player is about to meet. The comet sits at 30% from the bottom, so the whole of that band is
+    // what a frame is really showing.
+    const y = world.screenY(item.at);
+    if (y > VIEW.height * 0.30 && y < VIEW.height - 24) count += 1;
   }
   return count;
 }
@@ -33,13 +49,12 @@ function rockOnScreen(world) {
   let count = 0;
   for (const item of items) {
     if (item.kind === KIND_MOTE || item.kind === KIND_STAR) continue;
-    const y = screenY(item.at, state.depth);
+    const y = world.screenY(item.at);
     if (y > VIEW.height * 0.2 && y < VIEW.height - 30) count += 1;
   }
   return count;
 }
 import { SCREEN_OVER, SCREEN_PLAY, SCREEN_TITLE, SCREEN_WIN } from './render.js';
-import { pilotDirection } from './pilot.js';
 
 /** Play `seconds` of the real rules with the pilot steering; stop early on death or the core. */
 function fly(world, seconds, { untilStratum = null, win = false } = {}) {
@@ -47,7 +62,7 @@ function fly(world, seconds, { untilStratum = null, win = false } = {}) {
   const steps = Math.round(seconds / STEP);
   let bias = 0;
   for (let index = 0; index < steps; index += 1) {
-    bias = pilotDirection(world, bias, undefined, { urgentClearance: true });
+    bias = world.pilot(bias, 1.9, true);
     const events = world.step(STEP, { x: bias, y: 0 }, false);
     if (events & EVENT_OVER) return { over: true, won: false };
     if (win && (events & EVENT_WIN)) return { over: true, won: true };
@@ -69,15 +84,18 @@ export function stageShot(name, world) {
   if (name === 'play') {
     // Fly on until the frame has light ahead and some rock in it, so the shot shows the run.
     fly(world, 18);
-    const limit = Math.round(22 / STEP);
+    const limit = Math.round(40 / STEP);
     for (let index = 0; index < limit; index += 1) {
-      if (lightOnScreen(world) >= 3) break;
-      const direction = pilotDirection(world, 0, undefined, { urgentClearance: true });
+      // Three things at once: light ahead, a settled palette (a still caught mid-blend shows two
+      // strata at once), and a depth some way down. The fly-from-18 s start usually lands inside
+      // the blend band, so this keeps stepping — flying the real rules — until it is past it.
+      if (lightOnScreen(world) >= 3 && depthFromEdge(state.depth) > 150 && state.depth > 500) break;
+      const direction = world.pilot(0, 1.9, true);
       const events = world.step(STEP, { x: direction, y: 0 }, false);
       if (events & EVENT_OVER) return { screen: SCREEN_OVER, best: state.score, ok: false };
       if (events & EVENT_WIN) return { screen: SCREEN_WIN, best: state.score, ok: false };
     }
-    const ok = lightOnScreen(world) >= 3 && state.glow > 35 && state.depth > 500;
+    const ok = lightOnScreen(world) >= 3 && state.glow > 35 && state.depth > 500 && depthFromEdge(state.depth) > 90;
     return { screen: state.glow > 0 ? SCREEN_PLAY : SCREEN_OVER, best: state.score, ok };
   }
 
@@ -99,16 +117,17 @@ export function stageShot(name, world) {
   }
 
   if (name === 'end') {
-    // A hurried player who chases no light: a short look-ahead and rock only to dodge. The glow
+    // A hurried player who chases no light: a short look-ahead, and rock only to dodge. The glow
     // runs down on its own and the rock takes the rest, which is the ending the game really
-    // gives; the limit is only there so a lucky run still stops short of the core.
+    // gives. The scene stops when the run does — the over screen is the point of it — and the far
+    // limit is only there so a run that somehow survives still stops short of the core.
     fly(world, 22);
     const limit = Math.round(110 / STEP);
     for (let index = 0; index < limit; index += 1) {
-      const direction = pilotDirection(world, 0, 0.5, { dodgeOnly: true, repelLight: true });
+      const direction = world.pilotAway(0);
       const events = world.step(STEP, { x: direction, y: 0 }, false);
       if (events & (EVENT_OVER | EVENT_WIN)) break;
-      if (state.depth > GOAL_DEPTH_M * 0.55) break;
+      if (state.depth > GOAL_DEPTH_M * 0.92) break;
     }
     return { screen: state.glow > 0 ? SCREEN_PLAY : SCREEN_OVER, best: state.score, ok: state.glow <= 0 };
   }

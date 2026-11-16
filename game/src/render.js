@@ -15,7 +15,45 @@ import {
   progress,
   stratumIndexAt,
 } from './config.js';
-import { KIND_MOTE, KIND_SHARD, KIND_STAR, corridorCentre, corridorHalfWidth, screenY } from './world.js';
+import { KIND_MOTE, KIND_SHARD, KIND_STAR } from './world.js';
+
+/**
+ * The corridor and the screen height are the core's to compute, not the renderer's: every frame
+ * carries the world, so the two helpers below reach through it. `screenY` here takes the depth an
+ * item sits at and answers in pixels up from the bottom, exactly as the script version did.
+ */
+function screenYOf(world, itemDepth) {
+  return world.screenY(itemDepth);
+}
+
+/** The corridor's middle and half-width at a depth, as the core computes them. */
+function corridorAt(world, depth) {
+  return world.corridorAt(depth);
+}
+
+/**
+ * The scatter the sparks fly on: a fixed table of directions and speeds, drawn by index. Sparks
+ * are decoration, but a screenshot is not decoration — it is a frame the page has to reproduce
+ * exactly — so nothing in the draw path is allowed to consult Math.random.
+ */
+const SCATTER = (() => {
+  const table = new Float32Array(512);
+  let state = 0x9e3779b9;
+  for (let index = 0; index < table.length; index += 1) {
+    state = (state + 0x9e3779b9) >>> 0;
+    let z = state;
+    z = Math.imul(z ^ (z >>> 15), z | 1) >>> 0;
+    z ^= (z + Math.imul(z ^ (z >>> 7), z | 61)) >>> 0;
+    table[index] = ((z ^ (z >>> 14)) >>> 0) / 4294967296;
+  }
+  return table;
+})();
+let scatterAt = 0;
+function scatter() {
+  const value = SCATTER[scatterAt % SCATTER.length];
+  scatterAt += 1;
+  return value;
+}
 
 export const SCREEN_TITLE = 'title';
 export const SCREEN_PLAY = 'play';
@@ -141,26 +179,26 @@ export function createRenderer(canvas) {
     if (events & 1) {
       const p = at(comet.x, comet.y + 12);
       for (let i = 0; i < 9; i += 1) {
-        const a = Math.random() * TAU;
-        const s = 40 + Math.random() * 150;
-        sparks.push({ x: p.x, y: p.y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 20, life: 0.5 + Math.random() * 0.3, age: 0, size: 1.4 + Math.random() * 1.8, warm: true });
+        const a = scatter() * TAU;
+        const s = 40 + scatter() * 150;
+        sparks.push({ x: p.x, y: p.y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 20, life: 0.5 + scatter() * 0.3, age: 0, size: 1.4 + scatter() * 1.8, warm: true });
       }
     }
     if (events & 2) {
       const p = at(comet.x, comet.y + 12);
       for (let i = 0; i < 22; i += 1) {
-        const a = Math.random() * TAU;
-        const s = 60 + Math.random() * 260;
-        sparks.push({ x: p.x, y: p.y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: 0.6 + Math.random() * 0.5, age: 0, size: 1.6 + Math.random() * 2.6, warm: true });
+        const a = scatter() * TAU;
+        const s = 60 + scatter() * 260;
+        sparks.push({ x: p.x, y: p.y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: 0.6 + scatter() * 0.5, age: 0, size: 1.6 + scatter() * 2.6, warm: true });
       }
       flash = Math.max(flash, 0.35);
     }
     if (events & 4) {
       const p = at(comet.x, comet.y + 12);
       for (let i = 0; i < 26; i += 1) {
-        const a = Math.random() * TAU;
-        const s = 70 + Math.random() * 300;
-        sparks.push({ x: p.x, y: p.y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: 0.4 + Math.random() * 0.45, age: 0, size: 1.5 + Math.random() * 2.2, warm: false });
+        const a = scatter() * TAU;
+        const s = 70 + scatter() * 300;
+        sparks.push({ x: p.x, y: p.y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: 0.4 + scatter() * 0.45, age: 0, size: 1.5 + scatter() * 2.2, warm: false });
       }
       shake = Math.max(shake, 11);
       flash = Math.max(flash, 0.4);
@@ -168,7 +206,7 @@ export function createRenderer(canvas) {
     if (events & 8) {
       const p = at(comet.x, comet.y + 12);
       for (let i = 0; i < 3; i += 1) {
-        sparks.push({ x: p.x, y: p.y, vx: (Math.random() - 0.5) * 120, vy: Math.random() * 90, life: 0.3, age: 0, size: 1.3, warm: true });
+        sparks.push({ x: p.x, y: p.y, vx: (scatter() - 0.5) * 120, vy: scatter() * 90, life: 0.3, age: 0, size: 1.3, warm: true });
       }
       shake = Math.max(shake, 3.5);
     }
@@ -239,15 +277,15 @@ export function createRenderer(canvas) {
   }
 
   /** The corridor: two glowing walls that funnel the fall, breathing with the world. */
-  function drawCorridor(state, palette) {
+  function drawCorridor(world, state, palette) {
     const steps = 34;
     const left = [];
     const right = [];
     for (let index = 0; index <= steps; index += 1) {
       const y = (index / steps) * (VIEW.height + 40) - 20;
       const at = state.depth + (VIEW.height - y - VIEW.height * PLAYER_SCREEN_Y) / PIXELS_PER_METRE;
-      const centre = VIEW.width / 2 + corridorCentre(at);
-      const half = corridorHalfWidth(at);
+      const centre = VIEW.width / 2 + corridorAt(world, at);
+      const half = corridorAt(world, at, true);
       left.push([centre - half, y]);
       right.push([centre + half, y]);
     }
@@ -299,8 +337,8 @@ export function createRenderer(canvas) {
   }
 
   /** A mote, a star, or a rock, at its place on the screen. */
-  function drawItem(item, state, palette) {
-    const y = VIEW.height - screenY(item.at, state.depth);
+  function drawItem(world, item, state, palette) {
+    const y = VIEW.height - screenYOf(world, item.at);
     const x = VIEW.width / 2 + item.x;
     const pulse = 0.82 + 0.18 * Math.sin(state.time * 5 + item.phase);
 
@@ -639,7 +677,7 @@ export function createRenderer(canvas) {
   }
 
   /** The title screen: wordmark, the promise, how to play, and the one key that starts it. */
-  function drawTitle(palette) {
+  function drawTitle(state, palette) {
     scrim(0.42);
     drawWordmark(VIEW.width / 2, VIEW.height * 0.30, palette, 1);
     ctx.textAlign = 'center';
@@ -668,8 +706,10 @@ export function createRenderer(canvas) {
     ctx.textAlign = 'center';
     ctx.fillText('or steer with the mouse', VIEW.width / 2, rowY + 26);
 
-    // The one prompt, pulsing so it reads as live rather than painted.
-    const pulse = 0.62 + 0.38 * Math.sin(lastDepth * 0 + performance.now() / 380);
+    // The one prompt, pulsing so it reads as live rather than painted. The pulse is the run's,
+    // not the machine's: `state.time` advances only while the world does, so a paused game holds
+    // still and a screenshot of the same instant is the same picture.
+    const pulse = 0.62 + 0.38 * Math.sin(state.time * 2.6);
     ctx.globalAlpha = pulse;
     panel(VIEW.width / 2 - 132, VIEW.height * 0.885 - 21, 264, 42, 21, alpha('#ffffff', 0.12), alpha('#ffffff', 0.5));
     ctx.fillStyle = INK;
@@ -743,7 +783,7 @@ export function createRenderer(canvas) {
     ctx.font = "400 14px 'Segoe UI', 'Helvetica Neue', Arial, sans-serif";
     ctx.fillText(`You fell as far as ${palette.name}’s edge. The core is still ${formatNumber(Math.max(0, GOAL_DEPTH_M - state.depth))} m down.`, VIEW.width / 2, VIEW.height * 0.795);
 
-    const pulse = 0.62 + 0.38 * Math.sin(performance.now() / 380);
+    const pulse = 0.62 + 0.38 * Math.sin(state.time * 2.6);
     ctx.globalAlpha = pulse;
     panel(VIEW.width / 2 - 150, VIEW.height * 0.885 - 21, 300, 42, 21, alpha('#ffffff', 0.12), alpha('#ffffff', 0.5));
     ctx.fillStyle = INK;
@@ -799,7 +839,7 @@ export function createRenderer(canvas) {
       ctx.fillText(value, VIEW.width / 2 + 236, y + 1);
     });
 
-    const pulse = 0.62 + 0.38 * Math.sin(performance.now() / 380);
+    const pulse = 0.62 + 0.38 * Math.sin(state.time * 2.6);
     ctx.globalAlpha = pulse;
     panel(VIEW.width / 2 - 168, VIEW.height * 0.885 - 21, 336, 42, 21, 'rgba(255,252,240,0.92)', 'rgba(20,16,8,0.4)');
     ctx.fillStyle = 'rgba(14,10,4,0.95)';
@@ -818,14 +858,14 @@ export function createRenderer(canvas) {
     const palette = paletteAt(state.depth);
     const jolt = shake;
     ctx.save();
-    if (jolt > 0.2) ctx.translate((Math.random() - 0.5) * jolt, (Math.random() - 0.5) * jolt);
+    if (jolt > 0.2) ctx.translate((scatter() - 0.5) * jolt, (scatter() - 0.5) * jolt);
 
     drawSky(state, palette, state.depth * PIXELS_PER_METRE);
-    drawCorridor(state, palette);
+    drawCorridor(world, state, palette);
     for (const item of world.items) {
-      const y = screenY(item.at, state.depth);
+      const y = screenYOf(world, item.at);
       if (y < -80 || y > VIEW.height + 120) continue;
-      drawItem(item, state, palette);
+      drawItem(world, item, state, palette);
     }
     drawComet(state, palette, cometAlive);
     drawSparks(palette);
@@ -839,7 +879,7 @@ export function createRenderer(canvas) {
     if (screen === SCREEN_PLAY) drawHud(state, palette, best);
     else if (screen === SCREEN_TITLE) {
       drawHudTitleFrame(state, palette);
-      drawTitle(palette);
+      drawTitle(state, palette);
     } else if (screen === SCREEN_PAUSED) {
       drawHud(state, palette, best);
       drawPaused(palette);
