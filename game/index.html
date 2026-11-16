@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>LUMENFALL — a descent game</title>
 <meta name="description" content="Fall 4,000 metres to the core of a gas giant. Catch light motes, keep your glow alive, and dodge the rock.">
+<meta name="color-scheme" content="dark">
+<!-- The tab's icon: a comet, drawn inline so the page loads nothing over the network. -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23071426'/%3E%3Ccircle cx='20' cy='11' r='5' fill='%23b9f6ff'/%3E%3Cpath d='M17 15 L11 27 L15 25 L19 16 Z' fill='%237fe3ff' opacity='.75'/%3E%3C/svg%3E">
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: #050b14; }
   /* The canvas keeps its 16:9 shape and sits in the window's middle, letterboxed. */
@@ -22,6 +25,7 @@
 </div>
 <p id="status" role="status" aria-live="polite"></p>
 <div id="boot">LUMENFALL</div>
+<noscript><p style="position:fixed;left:0;right:0;bottom:2rem;text-align:center;color:#9fd8ee;font:600 14px 'Segoe UI',Arial,sans-serif">LUMENFALL is a canvas game and needs JavaScript turned on.</p></noscript>
 <script type="module" src="./src/main.js"></script>
 </body>
 </html>
