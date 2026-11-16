@@ -4,6 +4,14 @@
 // screenshots into the output directory and writes the dossier the judge reads. That is all this
 // does, in three steps: validate the layout, copy, then build the dossier from what was copied.
 //
+// main.ts is that program. It runs on Node 22.13 or later with no dependency to install: game/ is
+// plain ES modules the browser loads itself, so nothing here builds or bundles anything, and the
+// only import is the vendored dossier library beside it. main.ts never reads /input and never
+// touches the network; every file it copies is already in the commit it was pushed with.
+//
+// The same main.ts runs twice in the grader, and the two runs must agree byte for byte, so nothing
+// below depends on the clock, on a random seed, or on the order a directory happens to list in.
+//
 //   node main.ts                                  writes /output (the grader's own path)
 //   MAKEFUN_OUTPUT_DIR=out node main.ts           writes out/ instead, for a local run
 //   node main.ts --check                          checks the layout and writes nothing
