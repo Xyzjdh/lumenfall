@@ -72,6 +72,16 @@ function problemWithLayout() {
   return [];
 }
 
+/**
+ * The hand-in's summary, for a run and for --check to print: what was copied and how big the
+ * dossier came out. Kept out of the write itself so the write path stays one job.
+ */
+function describe(target) {
+  const game = countTree(join(target, 'game'));
+  const dossier = statSync(join(target, 'dossier.json')).size;
+  return `game/ ${game.entries} entries, ${(game.bytes / 1024).toFixed(0)} KiB; dossier ${(dossier / 1024).toFixed(0)} KiB`;
+}
+
 /** Copy the game and its screenshots, then write the dossier from the copies. */
 function handIn(target) {
   // A directory that already holds a previous hand-in must not be added to: start it clean.
@@ -88,13 +98,21 @@ function handIn(target) {
 
 const problems = problemWithLayout();
 if (problems.length > 0) {
+  // A person running this should see one sentence, not a stack trace: it is the entry, not a bug.
   console.error(`lumenfall: the entry is not ready: ${problems.join('; ')}`);
-  process.exit(1);
+  process.exitCode = 1;
+  process.exit();
 }
 
 if (process.argv.includes('--check')) {
-  const game = countTree(join(here, 'game'));
-  console.log(`lumenfall: ready. game/ ${game.entries} entries, ${(game.bytes / 1024).toFixed(0)} KiB`);
+  // Verify by doing the hand-in into a throwaway directory: the real thing, then thrown away.
+  const check = mkdtempSync(join(here, '.staging-'));
+  try {
+    handIn(join(check, 'out'));
+    console.log(`lumenfall: ready. ${describe(join(check, 'out'))} (nothing written outside a temporary directory)`);
+  } finally {
+    rmSync(check, { recursive: true, force: true });
+  }
   process.exit(0);
 }
 
@@ -108,8 +126,7 @@ try {
   for (const name of readdirSync(join(staging, 'out'))) {
     cpSync(join(staging, 'out', name), join(out, name), { recursive: true });
   }
-  const dossier = statSync(join(out, 'dossier.json')).size;
-  console.log(`lumenfall: handed in to ${out} (dossier ${(dossier / 1024).toFixed(0)} KiB)`);
+  console.log(`lumenfall: handed in to ${out}: ${describe(out)}`);
 } finally {
   rmSync(staging, { recursive: true, force: true });
 }
