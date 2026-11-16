@@ -1,0 +1,59 @@
+tune: 50 rounds, population 20, elite 5, 24 seeds a round
+round  1/50  round-best   -169.2  best   -169.2  win  76.7%  median  64.5s
+round  2/50  round-best   -157.2  best   -157.2  win  70.0%  median  68.2s
+round  3/50  round-best   -215.7  best   -157.2  win  57.5%  median  68.0s
+round  4/50  round-best   -154.1  best   -154.1  win  70.0%  median  67.0s
+round  5/50  round-best   -116.7  best   -116.7  win  77.5%  median  66.4s
+round  6/50  round-best   -116.7  best   -116.7  win  77.5%  median  66.4s
+round  7/50  round-best   -116.7  best   -116.7  win  77.5%  median  66.4s
+round  8/50  round-best   -111.4  best   -111.4  win  80.8%  median  66.6s
+round  9/50  round-best   -111.4  best   -111.4  win  80.8%  median  66.6s
+round 10/50  round-best   -111.4  best   -111.4  win  80.8%  median  66.6s
+round 11/50  round-best   -135.9  best   -111.4  win  70.0%  median  67.8s
+round 12/50  round-best   -111.4  best   -111.4  win  80.8%  median  66.6s
+round 13/50  round-best   -111.9  best   -111.4  win  76.7%  median  67.5s
+round 14/50  round-best   -117.7  best   -111.4  win  72.5%  median  67.6s
+round 15/50  round-best   -126.3  best   -111.4  win  72.5%  median  67.2s
+round 16/50  round-best   -123.6  best   -111.4  win  71.7%  median  67.0s
+round 17/50  round-best   -122.2  best   -111.4  win  75.0%  median  67.3s
+round 18/50  round-best   -134.8  best   -111.4  win  73.3%  median  67.3s
+round 19/50  round-best   -111.4  best   -111.4  win  80.8%  median  66.6s
+round 20/50  round-best   -114.1  best   -111.4  win  76.7%  median  66.3s
+round 21/50  round-best   -111.4  best   -111.4  win  80.8%  median  66.6s
+round 22/50  round-best   -111.4  best   -111.4  win  80.8%  median  66.6s
+round 23/50  round-best   -117.9  best   -111.4  win  80.8%  median  68.4s
+round 24/50  round-best   -111.4  best   -111.4  win  80.8%  median  66.6s
+round 25/50  round-best   -111.4  best   -111.4  win  80.8%  median  66.6s
+round 26/50  round-best   -113.2  best   -111.4  win  77.5%  median  66.6s
+round 27/50  round-best   -103.5  best   -103.5  win  80.8%  median  66.3s
+round 28/50  round-best   -103.5  best   -103.5  win  80.8%  median  66.3s
+round 29/50  round-best   -103.5  best   -103.5  win  80.8%  median  66.3s
+round 30/50  round-best   -111.2  best   -103.5  win  80.0%  median  67.8s
+round 31/50  round-best   -103.5  best   -103.5  win  80.8%  median  66.3s
+round 32/50  round-best   -103.5  best   -103.5  win  80.8%  median  66.3s
+round 33/50  round-best   -119.0  best   -103.5  win  75.0%  median  67.6s
+round 34/50  round-best   -103.5  best   -103.5  win  80.8%  median  66.3s
+round 35/50  round-best   -103.5  best   -103.5  win  80.8%  median  66.3s
+round 36/50  round-best   -103.5  best   -103.5  win  80.8%  median  66.3s
+round 37/50  round-best   -103.5  best   -103.5  win  80.8%  median  66.3s
+round 38/50  round-best   -103.5  best   -103.5  win  80.8%  median  66.3s
+round 39/50  round-best   -103.5  best   -103.5  win  80.8%  median  66.3s
+round 40/50  round-best   -103.5  best   -103.5  win  80.8%  median  66.3s
+round 41/50  round-best   -113.5  best   -103.5  win  75.8%  median  67.5s
+round 42/50  round-best   -103.5  best   -103.5  win  80.8%  median  66.3s
+round 43/50  round-best   -107.3  best   -103.5  win  79.2%  median  66.8s
+round 44/50  round-best   -103.5  best   -103.5  win  80.8%  median  66.3s
+round 45/50  round-best   -103.5  best   -103.5  win  80.8%  median  66.3s
+round 46/50  round-best   -103.5  best   -103.5  win  80.8%  median  66.3s
+round 47/50  round-best   -103.5  best   -103.5  win  80.8%  median  66.3s
+round 48/50  round-best   -103.5  best   -103.5  win  80.8%  median  66.3s
+round 49/50  round-best   -103.5  best   -103.5  win  80.8%  median  66.3s
+round 50/50  round-best   -103.5  best   -103.5  win  80.8%  median  66.3s
+
+best: score -103.5
+score -103.5 | win 81% | median 66.3s | mean 62.6s | depth 3693m | pts 12885 | rocks 3.3 | glow-deaths 19% | closest 56% | danger 3% | walls 0.0%
+  glow_start=99.180016 glow_drain_base=2.7220993 glow_drain_per_mps=0.021765953 glow_mote=7.5915985 glow_star=22.357773 glow_stratum_refill=16.972975 mote_gap_start=0.79773116 mote_gap_end=0.5024504 rock_gap_start=2.06335 rock_gap_end=0.92063403 star_chance=0.17856723 shard_chance=0.40187007 wall_drain=8.119234 rock_drain=13.742977 corridor_base=335.34494 corridor_breathe=35.43487 player_speed=392.6918 speed_start=34.823498 speed_end=95.97143 chain_step=9.165017
+
+gains (json): {"glow_start":99.180016,"glow_drain_base":2.722099,"glow_drain_per_mps":0.021766,"glow_mote":7.591599,"glow_star":22.357773,"glow_stratum_refill":16.972975,"mote_gap_start":0.797731,"mote_gap_end":0.502450,"rock_gap_start":2.063350,"rock_gap_end":0.920634,"star_chance":0.178567,"shard_chance":0.401870,"wall_drain":8.119234,"rock_drain":13.742977,"corridor_base":335.344940,"corridor_breathe":35.434872,"player_speed":392.691803,"speed_start":34.823498,"speed_end":95.971428,"chain_step":9.165017}
+wrote gains.json
+2 restarts, took 579.8s
