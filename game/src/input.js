@@ -5,6 +5,11 @@
 export const ACTION_CONFIRM = 1; // Space or Enter: start, restart, continue
 export const ACTION_BACK = 2; // Escape: pause, and leave a screen
 export const ACTION_MUTE = 4; // M: sound on or off
+export const ACTION_CYCLE_BIOME = 8; // B: cycle the biome on the title screen
+export const ACTION_DAILY = 16; // D: play today's descent
+export const ACTION_SHOP = 32; // S: the upgrade shop, between runs
+export const ACTION_UP = 64; // ArrowUp: the shop's cursor, upwards
+export const ACTION_DOWN = 128; // ArrowDown: the shop's cursor, downwards
 
 /** Keys held down that steer the comet, by code. */
 const LEFT_KEYS = new Set(['ArrowLeft', 'KeyA']);
@@ -44,6 +49,11 @@ export function createInput(canvas) {
     else if (event.code === 'Escape') actions |= ACTION_BACK;
     else if (event.code === 'KeyM') actions |= ACTION_MUTE;
     else if (event.code === 'KeyP') actions |= ACTION_BACK;
+    else if (event.code === 'KeyB') actions |= ACTION_CYCLE_BIOME;
+    else if (event.code === 'KeyD') actions |= ACTION_DAILY;
+    else if (event.code === 'KeyS' && event.shiftKey) actions |= ACTION_SHOP;
+    else if (event.code === 'ArrowUp' || event.code === 'KeyW') actions |= ACTION_UP;
+    else if (event.code === 'ArrowDown') actions |= ACTION_DOWN;
   });
 
   on(window, 'keyup', (event) => {

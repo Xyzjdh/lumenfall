@@ -58,6 +58,30 @@ impl Host {
 
 static mut HOST: Option<Host> = None;
 
+/// The world, if one has been made. For the v2 readers: they must never make one, because a
+/// reader that starts the game would change the game.
+#[allow(static_mut_refs)]
+fn world() -> Option<&'static World> {
+    unsafe { HOST.as_ref().map(|h| &h.world) }
+}
+
+/// The one world, for the writers: the shop buys into it, and the daily starts a new one.
+#[allow(static_mut_refs)]
+fn world_mut() -> Option<&'static mut World> {
+    unsafe { HOST.as_mut().map(|h| &mut h.world) }
+}
+
+/// The host, made if it is not there yet: the v2 writers need somewhere to write.
+#[allow(static_mut_refs)]
+fn host_mut() -> &'static mut Host {
+    unsafe {
+        if HOST.is_none() {
+            HOST = Some(Host::new());
+        }
+        HOST.as_mut().unwrap()
+    }
+}
+
 #[allow(static_mut_refs)]
 fn host() -> &'static mut Host {
     // Single-threaded by construction: a wasm module is one linear memory on one thread, and the
@@ -85,7 +109,11 @@ pub extern "C" fn abi_version() -> u32 {
 pub extern "C" fn world_new(seed: u32) -> f32 {
     let h = host();
     let gains = h.gains;
-    h.world = World::new(seed, gains);
+    // The sheet the player has bought and the world they chose survive a restart: a reset is a
+    // new descent, not a new game. `world_new_full` is how a different biome is asked for.
+    let upgrades = h.world.upgrades;
+    let biome = h.world.biome;
+    h.world = World::with_everything(seed, gains, upgrades, biome);
     h.last_events = 0;
     h.bias = 0.0;
     0.0
@@ -419,13 +447,24 @@ mod tests {
     #[test]
     fn stepping_moves_the_world_and_reports_events() {
         serial(|| {
+            // The interface is one global, so this test sets up its own build rather than
+            // inheriting whatever the test before it left in the gain table: a test that depends
+            // on the order it ran in is a test that fails on a different machine.
+            let ptr = gains_block(SHIPPED.len() as u32);
+            unsafe {
+                core::ptr::copy_nonoverlapping(SHIPPED.as_ptr(), ptr, SHIPPED.len());
+            }
+            gains_set_all(ptr, SHIPPED.len() as u32);
             world_new(7);
+            // A comet that does not steer still has to meet something: a mote is always laid
+            // before the first five seconds are out, so the event has to arrive by then. If it
+            // does not, the spawn clock is not crossing the boundary — what this test is for.
             let mut all = 0u32;
-            for _ in 0..180 {
+            for _ in 0..(60 * 5) {
                 all |= world_step(config::STEP, 0.0, 0.0, 0);
             }
-            assert!(depth() > 0.0, "three seconds fell no metres");
-            assert!(all != 0, "three seconds of descent raised no event at all");
+            assert!(depth() > 0.0, "five seconds fell no metres");
+            assert!(all != 0, "five seconds of descent raised no event at all: {all:#x}");
             let last = world_step(config::STEP, 0.0, 0.0, 0);
             assert_eq!(world_events(), last, "world_events did not report the last step");
         });
@@ -485,8 +524,12 @@ mod tests {
             assert!((gains_get(config::index_of("corridor_base") as u32) - KNOBS[config::index_of("corridor_base")].lo).abs() < 1e-3);
             // And the world the page will step really is played with them: a starting glow at the
             // envelope's floor is a fact only the new world can show.
+            // The tank is the knob, floored at 100 by the rules (plus the upgrade bonus, which is
+            // nought here): a build whose knob asks for less still starts with a whole tank.
+            let knob = KNOBS[config::index_of("glow_start")].lo;
+            let want = knob.max(100.0);
             let start = glow();
-            assert!((start - KNOBS[config::index_of("glow_start")].lo).abs() < 1e-3, "glow_start was {start}");
+            assert!((start - want).abs() < 1e-3, "the tank was {start}, not {want} (knob {knob})");
         });
     }
 
@@ -533,4 +576,341 @@ mod tests {
             assert_eq!(line.matches('=').count(), KNOBS.len());
         });
     }
+}
+
+// ---------------------------------------------------------------------------------------------
+// The rest of the game's state, for the page: the v2 surface. Everything here reads the same one
+// global world the functions above do, and every function returns a plain number so the page
+// needs no memory protocol beyond the ones it already has.
+// ---------------------------------------------------------------------------------------------
+
+/// The biome the run is played in: 0..5.
+#[no_mangle]
+pub extern "C" fn biome_id() -> u32 {
+    world().map(|w| w.biome.id).unwrap_or(0)
+}
+
+/// A biome's name, for the HUD. Index is the biome id; out of range wraps.
+#[no_mangle]
+pub extern "C" fn biome_name(id: u32) -> u32 {
+    const NAMES: &[&str] = &[
+        "quiet", "storm", "bloom", "glacier", "volcano", "eclipse",
+    ];
+    let index = (id as usize) % NAMES.len();
+    write_scratch(NAMES[index])
+}
+
+/// A biome's one-line blurb, for the bank.
+#[no_mangle]
+pub extern "C" fn biome_blurb(id: u32) -> u32 {
+    let index = (id as usize) % crate::systems::Biome::COUNT as usize;
+    let biome = crate::systems::Biome::from_index(index as u32);
+    write_scratch(biome.blurb())
+}
+
+/// Send a string to the page: the offset of its bytes from the module's scratch, and the length
+/// returned to the caller as the value. The page reads `bytes_alloc(0) + offset`.
+fn write_scratch(text: &str) -> u32 {
+    let room = unsafe { core::slice::from_raw_parts_mut(bytes_alloc(0), 256) };
+    // Trim at a character boundary, not a byte count: slicing a UTF-8 string mid-character
+    // panics, and a string that does not fit must be cut short rather than abort the module.
+    let mut end = text.len().min(room.len());
+    while end > 0 && !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    let bytes = &text.as_bytes()[..end];
+    room[..end].copy_from_slice(bytes);
+    end as u32
+}
+
+// ---- the shop -------------------------------------------------------------------------------
+
+/// How many upgrades the shop sells.
+#[no_mangle]
+pub extern "C" fn upgrades_count() -> u32 {
+    crate::kinds::Upgrade::ALL.len() as u32
+}
+
+/// An upgrade's name, in the scratch, length returned.
+#[no_mangle]
+pub extern "C" fn upgrade_name(index: u32) -> u32 {
+    match crate::kinds::Upgrade::from_index(index) {
+        Some(u) => write_scratch(u.name()),
+        None => write_scratch("?"),
+    }
+}
+
+/// An upgrade's blurb, in the scratch.
+#[no_mangle]
+pub extern "C" fn upgrade_blurb(index: u32) -> u32 {
+    match crate::kinds::Upgrade::from_index(index) {
+        Some(u) => write_scratch(u.blurb()),
+        None => write_scratch("?"),
+    }
+}
+
+/// What the next level of an upgrade costs, or 0 when it is already full.
+#[no_mangle]
+pub extern "C" fn upgrade_cost(index: u32) -> u32 {
+    world()
+        .map(|w| match crate::kinds::Upgrade::from_index(index) {
+            Some(u) => {
+                let level = w.upgrades.level(u);
+                if level >= u.max_level() {
+                    0
+                } else {
+                    u.cost(level)
+                }
+            }
+            None => 0,
+        })
+        .unwrap_or(0)
+}
+
+/// How many levels of an upgrade are held.
+#[no_mangle]
+pub extern "C" fn upgrade_level(index: u32) -> u32 {
+    world()
+        .map(|w| match crate::kinds::Upgrade::from_index(index) {
+            Some(u) => w.upgrades.level(u),
+            None => 0,
+        })
+        .unwrap_or(0)
+}
+
+/// The most levels an upgrade can hold.
+#[no_mangle]
+pub extern "C" fn upgrade_max(index: u32) -> u32 {
+    crate::kinds::Upgrade::from_index(index)
+        .map(|u| u.max_level())
+        .unwrap_or(0)
+}
+
+/// Buy one level. Returns 1 when it was bought, 0 when it could not be (full, or too dear).
+/// The shards are handed in by the page: the ledger lives there, because it must survive the tab.
+#[no_mangle]
+pub extern "C" fn upgrade_buy(index: u32, shards: u32) -> u32 {
+    let Some(u) = crate::kinds::Upgrade::from_index(index) else {
+        return 0;
+    };
+    let Some(w) = world_mut() else { return 0 };
+    let level = w.upgrades.level(u);
+    if level >= u.max_level() {
+        return 0;
+    }
+    let cost = u.cost(level);
+    if shards < cost {
+        return 0;
+    }
+    w.upgrades.levels[u.index() as usize] = level + 1;
+    cost // the page subtracts exactly what was reported
+}
+
+/// The cheapest thing the shop sells that the player cannot yet afford, for the HUD's nudge.
+#[no_mangle]
+pub extern "C" fn upgrade_cheapest() -> u32 {
+    world()
+        .map(|w| {
+            crate::kinds::Upgrade::ALL
+                .iter()
+                .filter(|u| w.upgrades.level(**u) < u.max_level())
+                .map(|u| u.cost(w.upgrades.level(*u)))
+                .min()
+                .unwrap_or(0)
+        })
+        .unwrap_or(0)
+}
+
+// ---- the daily ------------------------------------------------------------------------------
+
+/// The seed for a day number: the same day is the same descent everywhere.
+#[no_mangle]
+pub extern "C" fn daily_seed_of(day: u32) -> u32 {
+    crate::systems::daily_seed(day)
+}
+
+/// Which day a UNIX time falls on, in the game's own calendar.
+#[no_mangle]
+pub extern "C" fn day_of_epoch(seconds: i64) -> u32 {
+    crate::systems::day_of(seconds)
+}
+
+// ---- the run, read back ---------------------------------------------------------------------
+
+/// The combo's rating, 0..5.
+#[no_mangle]
+pub extern "C" fn combo_rating() -> u32 {
+    world().map(|w| w.combo.rating).unwrap_or(0)
+}
+
+/// The rating's word, in the scratch.
+#[no_mangle]
+pub extern "C" fn combo_word() -> u32 {
+    match world() {
+        Some(w) => write_scratch(w.combo.rating_word()),
+        None => write_scratch("—"),
+    }
+}
+
+/// Seconds of unbroken clean play.
+#[no_mangle]
+pub extern "C" fn combo_clean() -> f32 {
+    world().map(|w| w.combo.clean).unwrap_or(0.0)
+}
+
+/// Which weather is blowing: a `Weather::code`.
+#[no_mangle]
+pub extern "C" fn weather_code() -> u32 {
+    world().map(|w| w.sky.now.code()).unwrap_or(0)
+}
+
+/// Its name, in the scratch.
+#[no_mangle]
+pub extern "C" fn weather_name() -> u32 {
+    match world() {
+        Some(w) => write_scratch(w.sky.now.name()),
+        None => write_scratch("clear"),
+    }
+}
+
+/// The guardian's phase: 0 asleep, 1 fighting, 2 beaten.
+#[no_mangle]
+pub extern "C" fn guardian_phase() -> u32 {
+    world().map(|w| w.guardian.phase).unwrap_or(0)
+}
+
+/// How much of it is left, 1 down to 0.
+#[no_mangle]
+pub extern "C" fn guardian_health() -> f32 {
+    world().map(|w| w.guardian.health).unwrap_or(0.0)
+}
+
+/// What its current attack is called.
+#[no_mangle]
+pub extern "C" fn guardian_attack_name() -> u32 {
+    match world() {
+        Some(w) => write_scratch(w.guardian.attack_name()),
+        None => write_scratch(""),
+    }
+}
+
+/// Shield charges held.
+#[no_mangle]
+pub extern "C" fn shields_held() -> u32 {
+    world().map(|w| w.state.shields).unwrap_or(0)
+}
+
+/// Seconds of slow left.
+#[no_mangle]
+pub extern "C" fn slow_left() -> f32 {
+    world().map(|w| w.state.slow).unwrap_or(0.0)
+}
+
+/// Seconds of lure left.
+#[no_mangle]
+pub extern "C" fn lure_left() -> f32 {
+    world().map(|w| w.state.lure).unwrap_or(0.0)
+}
+
+/// Seconds of doubled score left.
+#[no_mangle]
+pub extern "C" fn double_left() -> f32 {
+    world().map(|w| w.state.double).unwrap_or(0.0)
+}
+
+/// Near misses this run.
+#[no_mangle]
+pub extern "C" fn grazes() -> u32 {
+    world().map(|w| w.state.grazes).unwrap_or(0)
+}
+
+/// Non-light pickups taken this run.
+#[no_mangle]
+pub extern "C" fn pickups_taken() -> u32 {
+    world().map(|w| w.state.pickups_taken).unwrap_or(0)
+}
+
+/// The milestone last reached, in metres.
+#[no_mangle]
+pub extern "C" fn milestone() -> f32 {
+    world().map(|w| w.state.milestone).unwrap_or(0.0)
+}
+
+/// The best clean streak this run, in seconds.
+#[no_mangle]
+pub extern "C" fn best_clean() -> f32 {
+    world().map(|w| w.combo.best_clean).unwrap_or(0.0)
+}
+
+/// Start a world in a given biome with a given upgrade sheet, for the daily and the shop.
+#[no_mangle]
+pub extern "C" fn world_new_full(seed: u32, biome: u32) -> u32 {
+    let gains = host().gains;
+    let upgrades = world().map(|w| w.upgrades).unwrap_or_default();
+    host_mut().world = crate::world::World::with_everything(
+        seed,
+        gains,
+        upgrades,
+        crate::systems::Biome::from_index(biome),
+    );
+    host().world.state.depth as u32
+}
+
+/// The best chain this run reached.
+#[no_mangle]
+pub extern "C" fn best_chain_key() -> i32 {
+    world().map(|w| w.combo.best_chain).unwrap_or(0)
+}
+
+/// The chain as it stands right now.
+#[no_mangle]
+pub extern "C" fn chain_now() -> i32 {
+    world().map(|w| w.combo.chain).unwrap_or(0)
+}
+
+/// How many motes and stars the run has taken, as one number: the ledger's currency.
+#[no_mangle]
+pub extern "C" fn motes_run() -> u32 {
+    world()
+        .map(|w| w.state.motes_taken + w.state.stars_taken)
+        .unwrap_or(0)
+}
+
+/// Puts a level on an upgrade without charging for it: the page owns the ledger, and at boot it
+/// hands back the sheet it has kept. Returns the level now held.
+#[no_mangle]
+pub extern "C" fn upgrade_set(index: u32, level: u32) -> u32 {
+    let Some(u) = crate::kinds::Upgrade::from_index(index) else {
+        return 0;
+    };
+    let Some(w) = world_mut() else { return 0 };
+    let level = level.min(u.max_level());
+    w.upgrades.levels[u.index() as usize] = level;
+    level
+}
+
+/// A whole sheet at once, as one word per upgrade from the lowest index: the boot's fast path.
+/// The page writes the levels into the bytes scratch as one byte each, so eight levels cross the
+/// boundary in one call instead of eight.
+#[no_mangle]
+pub extern "C" fn upgrades_set_block(levels_ptr: *const u8, count: u32) -> u32 {
+    if levels_ptr.is_null() {
+        return 0;
+    }
+    let Some(w) = world_mut() else { return 0 };
+    let bytes = unsafe { core::slice::from_raw_parts(levels_ptr, count as usize) };
+    let total = crate::kinds::Upgrade::ALL.len().min(bytes.len());
+    for (index, byte) in bytes.iter().take(total).enumerate() {
+        if let Some(u) = crate::kinds::Upgrade::from_index(index as u32) {
+            w.upgrades.levels[index] = (*byte as u32).min(u.max_level());
+        }
+    }
+    total as u32
+}
+
+/// The tank's ceiling under the current sheet: the knob, floored at 100, plus the Lantern bonus.
+/// The HUD reads this so a bought tank shows as full rather than as over 100 %.
+#[no_mangle]
+pub extern "C" fn max_glow_now() -> f32 {
+    world().map(|w| w.max_glow()).unwrap_or(100.0)
 }

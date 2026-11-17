@@ -70,7 +70,7 @@ fn threat_along(items: &[Item], path: &[Point], y: f32) -> Threat {
     let mut near_x = 0.0;
     for point in path {
         for item in items {
-            if !item.active || item.kind.is_light() {
+            if !item.active || !item.kind.is_rock() {
                 continue;
             }
             // Vertical gap between the comet (fixed on screen) and this rock, at this instant.
@@ -129,7 +129,20 @@ fn light_along(items: &[Item], path: &[Point], y: f32) -> f32 {
             }
             // Full credit inside 16 px, easing to nothing at 70 px.
             let near = (1.0 - (dx - 16.0).max(0.0) / 54.0).max(0.0);
-            light += near * if item.kind == Kind::Star { 3.2 } else { 1.0 };
+            // The pilot values the light by what the light is worth: a charged mote feeds a
+            // chain, a flask feeds the tank, and a shield is worth more than either.
+            let worth = match item.kind {
+                Kind::Star | Kind::Prism => 3.2,
+                Kind::Charged => 2.4,
+                Kind::Swirling => 1.8,
+                Kind::Flask => 2.0,
+                Kind::Shield => 2.8,
+                Kind::Slow => 1.2,
+                Kind::Lure => 1.6,
+                Kind::Heart => 2.2,
+                _ => 1.0,
+            };
+            light += near * worth;
         }
         index += step;
     }
@@ -143,7 +156,7 @@ pub fn pilot_direction(world: &World, bias: f32, horizon: f32, options: Options)
     // The nearest light ahead: what the pilot steers toward when nothing is in the way.
     let mut target: Option<&Item> = None;
     for item in items {
-        if !item.active || !item.kind.is_light() || item.at < world.state.depth {
+        if !item.active || item.kind.is_rock() || item.at < world.state.depth {
             continue;
         }
         if target.map(|t| item.at < t.at).unwrap_or(true) {
@@ -202,7 +215,7 @@ pub fn pilot_direction(world: &World, bias: f32, horizon: f32, options: Options)
         if urgent {
             let first = path.first().map(|p| (p.x, p.depth)).unwrap_or((world.comet.x, world.state.depth));
             for item in items {
-                if !item.active || item.kind.is_light() {
+                if !item.active || !item.kind.is_rock() {
                     continue;
                 }
                 let dy = screen_y(item.at, first.1) - world.comet.y;
@@ -252,16 +265,37 @@ pub struct RunResult {
     pub closest_call: f32,
     /// The share of the run the glow spent under a quarter: the tension the run carried.
     pub time_in_danger: f32,
+    /// Which biome the run was played in.
+    pub biome: u32,
+    /// Non-light pickups taken.
+    pub pickups: u32,
+    /// Near misses.
+    pub grazes: u32,
+    /// The best chain the run reached.
+    pub best_chain: i32,
+    /// The weather changes the run lived through.
+    pub weather_changes: u32,
 }
 
 /// Plays one run to its end. `max_seconds` bounds it, so a build nobody can win still terminates.
 pub fn play_run(seed: u32, gains: Gains, max_seconds: f32) -> RunResult {
-    let mut world = World::new(seed, gains);
+    play_run_where(seed, gains, max_seconds, 0)
+}
+
+/// The same run, in a named biome: the harness measures every biome, and the page plays one.
+pub fn play_run_where(seed: u32, gains: Gains, max_seconds: f32, biome: u32) -> RunResult {
+    let mut world = World::with_everything(
+        seed,
+        gains,
+        crate::kinds::Upgrades::default(),
+        crate::systems::Biome::from_index(biome),
+    );
     let mut bias = 0.0f32;
     let mut wall_ticks = 0u32;
     let mut danger_ticks = 0u32;
     let mut ticks = 0u32;
     let mut lowest_glow = f32::INFINITY;
+    let mut weather_changes = 0u32;
     let limit = (max_seconds / STEP) as u32;
 
     // Decisions are made a few times a second, as a person's hands are: steering every physics
@@ -277,6 +311,9 @@ pub fn play_run(seed: u32, gains: Gains, max_seconds: f32) -> RunResult {
         let events = world.step(STEP, Steer { x: direction, y: 0.0 }, false);
         if events & crate::world::EVENT_WALL != 0 {
             wall_ticks += 1;
+        }
+        if events & crate::world::EVENT_WEATHER != 0 {
+            weather_changes += 1;
         }
         let glow = world.state.glow;
         if glow < lowest_glow {
@@ -306,6 +343,11 @@ pub fn play_run(seed: u32, gains: Gains, max_seconds: f32) -> RunResult {
         wall_ticks,
         closest_call: (1.0 - lowest_glow / 100.0).clamp(0.0, 1.0),
         time_in_danger: if ticks == 0 { 0.0 } else { danger_ticks as f32 / ticks as f32 },
+        biome,
+        pickups: world.state.pickups_taken,
+        grazes: world.state.grazes,
+        best_chain: world.state.best_chain,
+        weather_changes,
     }
 }
 

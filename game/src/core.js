@@ -20,6 +20,8 @@
  * it can ask about each by name; a name it does not list is a gain it cannot show, never one it
  * silently plays wrong, because the playing side reads the keys out of gains.json instead.
  */
+import { KIND_CODES } from './world.js';
+
 const GAIN_NAMES = [
   'glow_start', 'glow_drain_base', 'glow_drain_per_mps', 'glow_mote', 'glow_star',
   'glow_stratum_refill', 'mote_gap_start', 'mote_gap_end', 'rock_gap_start', 'rock_gap_end',
@@ -52,12 +54,33 @@ export function createWorld(core, seed, gains = null) {
     stratum: 0,
     stratumBanner: 0,
     time: 0,
+    // --- the systems: biomes, weather, powers, the guardian and the combo
+    biome: 0,
+    weather: 0,
+    rating: 0,
+    clean: 0,
+    bestClean: 0,
+    bestChain: 0,
+    shields: 0,
+    slow: 0,
+    lure: 0,
+    double: 0,
+    grazes: 0,
+    pickups: 0,
+    milestone: 0,
+    guardian: 0,
+    guardianHealth: 1,
+    // The tank's ceiling: 100 plus whatever the Lantern has bought, so a gauge reads full
+    // when it is full rather than over 100 %.
+    maxGlow: 100,
   };
 
   const comet = { x: 0, y: 0, vx: 0, vy: 0, tilt: 0, radius: 11, alive: true };
 
-  const KINDS = ['mote', 'star', 'stone', 'shard'];
+  const KINDS = KIND_CODES;
   let items = [];
+  /** The events the last step raised, for anything that reads state after the fact. */
+  let lastEvents = 0;
 
   /** Pulls the state, the comet and the item table out of the module into the script's shapes. */
   function sync() {
@@ -78,6 +101,25 @@ export function createWorld(core, seed, gains = null) {
     comet.y = core.comet_y();
     comet.tilt = core.comet_tilt();
     comet.alive = core.outcome() !== 2;
+
+    // The v2 readouts. Each is a plain number from the module; the object above is the only
+    // shape the rest of the page knows, so everything new lands here rather than in a new hook.
+    state.biome = core.biome_id();
+    state.weather = core.weather_code();
+    state.rating = core.combo_rating();
+    state.clean = core.combo_clean();
+    state.bestClean = core.best_clean();
+    state.bestChain = core.best_chain_key();
+    state.shields = core.shields_held();
+    state.slow = core.slow_left();
+    state.lure = core.lure_left();
+    state.double = core.double_left();
+    state.grazes = core.grazes();
+    state.pickups = core.pickups_taken();
+    state.milestone = core.milestone();
+    state.guardian = core.guardian_phase();
+    state.guardianHealth = core.guardian_health();
+    state.maxGlow = core.max_glow_now();
 
     tableLength = core.items_fill();
     if (table === null || table.length !== tableLength * stride) {
@@ -119,6 +161,7 @@ export function createWorld(core, seed, gains = null) {
         Number.isFinite(steer?.y) ? steer.y : 0,
         idle ? 1 : 0,
       );
+      lastEvents = events;
       sync();
       return events;
     },
@@ -143,6 +186,30 @@ export function createWorld(core, seed, gains = null) {
     pilotAway(bias = 0) {
       return core.pilot_steer_away(bias);
     },
+    /** Start a new world with a biome and the upgrades held: the shop and the daily. */
+    start({ seed: nextSeed = seed, biome = 0 } = {}) {
+      core.world_new_full(nextSeed >>> 0, biome >>> 0);
+      sync();
+    },
+    /** A word for the weather, freshly read: the core keeps it. */
+    weatherName() {
+      return readString(core.weather_name);
+    },
+    /** The combo's judgement, as a word. */
+    ratingWord() {
+      return readString(core.combo_word);
+    },
+    /** What the guardian is doing this moment. */
+    guardianAttack() {
+      return readString(core.guardian_attack_name);
+    },
+    /** The biome's name and one-line description. */
+    biomeName() {
+      return readString(() => core.biome_name(state.biome));
+    },
+    biomeBlurb() {
+      return readString(() => core.biome_blurb(state.biome));
+    },
     /** Why the run ended: 0 still going, 1 the core reached, 2 the glow spent. */
     outcome() {
       return core.outcome();
@@ -155,6 +222,18 @@ export function createWorld(core, seed, gains = null) {
       return half ? core.corridor_half_at(depth) : core.corridor_centre_at(depth);
     },
   };
+
+  /**
+   * Reads a string the core wrote into its own scratch. The call returns the length; the bytes
+   * start at the same block the gain names are written to, so there is one scratch and one rule:
+   * a string is valid until the next call.
+   */
+  function readString(write) {
+    const len = write();
+    if (!len) return '';
+    const ptr = core.bytes_alloc(len);
+    return new TextDecoder().decode(new Uint8Array(core.memory.buffer, ptr, len));
+  }
 
   /**
    * The gains the world is played with, read back for the console and for a curious player. The
@@ -194,7 +273,50 @@ export function createWorld(core, seed, gains = null) {
   core.world_new(seed >>> 0);
   sync();
 
-  return { world, state, comet, readGains, applyGains, sync };
+  /**
+   * Hands the core the sheet the player has bought, one byte per level, before the first world
+   * is made. The core owns the rules, the save owns the ledger, and this is the one place the
+   * ledger becomes a rule.
+   */
+  function applyUpgrades(levels) {
+    if (!Array.isArray(levels) || levels.length === 0) return 0;
+    const bytes = new Uint8Array(levels.length);
+    for (let index = 0; index < levels.length; index += 1) {
+      bytes[index] = Math.max(0, Math.min(255, Math.floor(Number(levels[index]) || 0)));
+    }
+    const ptr = core.bytes_alloc(bytes.length);
+    new Uint8Array(core.memory.buffer, ptr, bytes.length).set(bytes);
+    return core.upgrades_set_block(ptr, bytes.length) >>> 0;
+  }
+
+  /** The shop, as data: every upgrade, with its name, cost, level and cap. */
+  function shop() {
+    const out = [];
+    const count = core.upgrades_count();
+    for (let index = 0; index < count; index += 1) {
+      out.push({
+        index,
+        name: readString(() => core.upgrade_name(index)),
+        blurb: readString(() => core.upgrade_blurb(index)),
+        cost: core.upgrade_cost(index),
+        level: core.upgrade_level(index),
+        max: core.upgrade_max(index),
+      });
+    }
+    return out;
+  }
+
+  /**
+   * Buys one level with the shards the page holds. The page passes what it has and the core
+   * answers with what it charged — 0 for a refusal — so the ledger is never decremented on a
+   * promise. `world_buy` restarts the descent only if the shop is opened between runs, so a
+   * purchase mid-run cannot change the run the player is already playing.
+   */
+  function buy(index, shards) {
+    return core.upgrade_buy(index, shards) >>> 0;
+  }
+
+  return { world, state, comet, readGains, applyGains, sync, shop, buy, readString, applyUpgrades };
 }
 
 /**

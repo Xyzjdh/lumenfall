@@ -15,7 +15,22 @@ import {
   progress,
   stratumIndexAt,
 } from './config.js';
-import { KIND_MOTE, KIND_SHARD, KIND_STAR } from './world.js';
+import {
+  KIND_CHARGED,
+  KIND_CINDER,
+  KIND_FLASK,
+  KIND_FROST,
+  KIND_HEART,
+  KIND_ICEBERG,
+  KIND_LURE,
+  KIND_MOTE,
+  KIND_PRISM,
+  KIND_SHIELD,
+  KIND_SHARD,
+  KIND_SLOW,
+  KIND_STAR,
+  KIND_SWIRLING,
+} from './world.js';
 
 /**
  * The corridor and the screen height are the core's to compute, not the renderer's: every frame
@@ -26,9 +41,13 @@ function screenYOf(world, itemDepth) {
   return world.screenY(itemDepth);
 }
 
-/** The corridor's middle and half-width at a depth, as the core computes them. */
-function corridorAt(world, depth) {
-  return world.corridorAt(depth);
+/**
+ * The corridor's middle and half-width at a depth, as the core computes them. `half` asks for the
+ * width; without it the middle is answered. The flag has to reach the world: a wall drawn at the
+ * centre line is a wall in the wrong place, and the tunnel then reads as two rails.
+ */
+function corridorAt(world, depth, half = false) {
+  return world.corridorAt(depth, half);
 }
 
 /**
@@ -60,8 +79,25 @@ export const SCREEN_PLAY = 'play';
 export const SCREEN_PAUSED = 'paused';
 export const SCREEN_OVER = 'over';
 export const SCREEN_WIN = 'win';
+/** The shop between runs: a list of upgrades, drawn over the falling world. */
+export const SCREEN_SHOP = 'shop';
 
 const TAU = Math.PI * 2;
+
+/** Every achievement's name, by id, for the end screen's line. */
+const ACHIEVEMENT_NAMES = {
+  first: 'FIRST FALL', core: 'TO THE CORE', unharmed: 'UNTOUCHED', chain25: 'LONG THREAD',
+  chain50: 'UNBROKEN', clean30: 'CLEAN HANDS', graze20: 'NERVE', shielded: 'BULWARK',
+  guardian: 'GUARDIAN-SLAYER', daily: 'SAME STARS', thrifty: 'WELL KEPT', collector: 'FULL RIG',
+};
+
+/** The weather's names, in the core's own order. */
+const WEATHER_NAMES = ['Clear', 'Headwind', 'Tailwind', 'Fog', 'Crosswind'];
+/** The biome names, in the core's own order. */
+const BIOME_NAMES = ['Quiet', 'Storm', 'Bloom', 'Glacier', 'Volcano', 'Eclipse'];
+/** The combo's rating words, and the colour each one wears. */
+const RATING_WORDS = ['', 'STEADY', 'GOOD', 'SHARP', 'PERFECT', 'UNREAL'];
+const RATING_COLOURS = ['', 'rgba(226,246,255,0.62)', '#8fe3ff', '#a8ffb0', '#ffe07a', '#ff9d7a'];
 
 /** Named colours, so the drawing reads as palette rather than magic numbers. */
 const INK = '#f2fbff';
@@ -218,6 +254,7 @@ export function createRenderer(canvas) {
 
   /** Advance the renderer's own animation clocks. */
   function step(dt, world) {
+    if (bannerTimer > 0) bannerTimer = Math.max(0, bannerTimer - dt);
     const { comet, state } = world;
     trail.unshift({ x: comet.x, y: comet.y, tilt: comet.tilt, glow: state.glow, depth: state.depth });
     if (trail.length > 26) trail.pop();
@@ -383,9 +420,212 @@ export function createRenderer(canvas) {
       return;
     }
 
+    if (item.kind === KIND_CHARGED) {
+      // A storm-charged mote: a mote with an electric cage around it, and a flicker.
+      const g = ctx.createRadialGradient(x, y, 0, x, y, 22 * pulse);
+      g.addColorStop(0, 'rgba(190,250,255,0.98)');
+      g.addColorStop(0.3, alpha('#7fd4ff', 0.8));
+      g.addColorStop(1, alpha('#3f7fff', 0));
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(x, y, 22 * pulse, 0, TAU);
+      ctx.fill();
+      ctx.strokeStyle = alpha('#dff8ff', 0.9);
+      ctx.lineWidth = 1.4;
+      for (let bolt = 0; bolt < 3; bolt += 1) {
+        const a = state.time * 7 + item.phase + (bolt * TAU) / 3;
+        ctx.beginPath();
+        ctx.moveTo(x + Math.cos(a) * 6, y + Math.sin(a) * 6);
+        ctx.lineTo(x + Math.cos(a + 0.5) * 13, y + Math.sin(a + 0.5) * 13);
+        ctx.lineTo(x + Math.cos(a + 0.2) * 18, y + Math.sin(a + 0.2) * 18);
+        ctx.stroke();
+      }
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(x, y, 3.4, 0, TAU);
+      ctx.fill();
+      return;
+    }
+
+    if (item.kind === KIND_SWIRLING) {
+      // A mote with two small satellites turning around it.
+      const g = ctx.createRadialGradient(x, y, 0, x, y, 18 * pulse);
+      g.addColorStop(0, alpha(palette.mote, 0.95));
+      g.addColorStop(0.4, alpha(palette.accent, 0.5));
+      g.addColorStop(1, alpha(palette.accent, 0));
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(x, y, 18 * pulse, 0, TAU);
+      ctx.fill();
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(x, y, 2.8, 0, TAU);
+      ctx.fill();
+      for (let moon = 0; moon < 2; moon += 1) {
+        const a = state.time * 3.4 + item.phase + moon * Math.PI;
+        ctx.fillStyle = alpha(palette.mote, 0.85);
+        ctx.beginPath();
+        ctx.arc(x + Math.cos(a) * 13, y + Math.sin(a) * 7, 2.3, 0, TAU);
+        ctx.fill();
+      }
+      return;
+    }
+
+    if (item.kind === KIND_FROST) {
+      // Glacier light: a mote inside a six-armed crystal.
+      const g = ctx.createRadialGradient(x, y, 0, x, y, 16 * pulse);
+      g.addColorStop(0, 'rgba(235,255,255,0.95)');
+      g.addColorStop(0.45, alpha('#a8e9ff', 0.5));
+      g.addColorStop(1, alpha('#6fbaff', 0));
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(x, y, 16 * pulse, 0, TAU);
+      ctx.fill();
+      ctx.strokeStyle = alpha('#e6fbff', 0.9);
+      ctx.lineWidth = 1.6;
+      for (let arm = 0; arm < 6; arm += 1) {
+        const a = (arm / 6) * TAU + state.time * 0.6 + item.phase;
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(x + Math.cos(a) * 12, y + Math.sin(a) * 12);
+        ctx.stroke();
+      }
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(x, y, 2.6, 0, TAU);
+      ctx.fill();
+      return;
+    }
+
+    if (item.kind === KIND_PRISM) {
+      // A star refracted: a rotating triangle with a rainbow edge.
+      const size = 15 * pulse;
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(state.time * 1.2 + item.phase);
+      const g = ctx.createRadialGradient(0, 0, 0, 0, 0, size * 2.2);
+      g.addColorStop(0, 'rgba(255,255,255,0.95)');
+      g.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(0, 0, size * 2.2, 0, TAU);
+      ctx.fill();
+      const hues = ['#ff9d7a', '#ffe07a', '#a8ffb0', '#8fd4ff', '#c59bff'];
+      for (let edge = 0; edge < 3; edge += 1) {
+        ctx.strokeStyle = alpha(hues[(edge + Math.floor(state.time * 2)) % hues.length], 0.95);
+        ctx.lineWidth = 2.2;
+        const a0 = (edge / 3) * TAU;
+        const a1 = ((edge + 1) / 3) * TAU;
+        ctx.beginPath();
+        ctx.moveTo(Math.cos(a0) * size, Math.sin(a0) * size);
+        ctx.lineTo(Math.cos(a1) * size, Math.sin(a1) * size);
+        ctx.stroke();
+      }
+      ctx.restore();
+      return;
+    }
+
+    if (item.kind === KIND_CINDER) {
+      // A cinder: a hot ember with a short upward tail.
+      const size = item.drawR ?? item.r;
+      const g = ctx.createRadialGradient(x, y, 0, x, y, size * 1.8);
+      g.addColorStop(0, 'rgba(255,240,190,0.98)');
+      g.addColorStop(0.35, alpha('#ff8a3d', 0.85));
+      g.addColorStop(1, alpha('#b2251a', 0));
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(x, y, size * 1.8, 0, TAU);
+      ctx.fill();
+      ctx.strokeStyle = alpha('#ffb066', 0.55);
+      ctx.lineWidth = 2.4;
+      ctx.beginPath();
+      ctx.moveTo(x, y + size * 0.4);
+      ctx.quadraticCurveTo(x + Math.sin(state.time * 6 + item.phase) * 7, y + size * 1.6, x, y + size * 2.6);
+      ctx.stroke();
+      return;
+    }
+
+    // The pickups: things that are taken rather than dodged, so they read as objects, not light.
+    if (item.kind === KIND_FLASK || item.kind === KIND_SHIELD || item.kind === KIND_SLOW
+      || item.kind === KIND_LURE || item.kind === KIND_HEART) {
+      const colour = {
+        flask: '#ffe9a8', shield: '#9fe8ff', slow: '#b8a8ff', lure: '#ff9fe0', heart: '#ff7a9c',
+      }[item.kind];
+      const bob = Math.sin(state.time * 2.6 + item.wobble) * 2.2;
+      ctx.save();
+      ctx.translate(x, y + bob);
+      // A soft capsule of light behind it, so a dark corridor still shows it.
+      const g = ctx.createRadialGradient(0, 0, 0, 0, 0, 24);
+      g.addColorStop(0, alpha(colour, 0.5));
+      g.addColorStop(1, alpha(colour, 0));
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(0, 0, 24, 0, TAU);
+      ctx.fill();
+      ctx.strokeStyle = alpha(colour, 0.95);
+      ctx.fillStyle = alpha(colour, 0.22);
+      ctx.lineWidth = 1.8;
+      if (item.kind === KIND_FLASK) {
+        ctx.beginPath();
+        ctx.moveTo(-4, -11);
+        ctx.lineTo(4, -11);
+        ctx.lineTo(4, -5);
+        ctx.lineTo(9, 6);
+        ctx.quadraticCurveTo(9, 12, 0, 12);
+        ctx.quadraticCurveTo(-9, 12, -9, 6);
+        ctx.lineTo(-4, -5);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+      } else if (item.kind === KIND_SHIELD) {
+        ctx.beginPath();
+        ctx.moveTo(0, -12);
+        ctx.lineTo(10, -6);
+        ctx.lineTo(10, 3);
+        ctx.quadraticCurveTo(10, 11, 0, 13);
+        ctx.quadraticCurveTo(-10, 11, -10, 3);
+        ctx.lineTo(-10, -6);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+      } else if (item.kind === KIND_SLOW) {
+        ctx.beginPath();
+        ctx.arc(0, 0, 10, 0, TAU);
+        ctx.fill();
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(0, -6);
+        ctx.moveTo(0, 0);
+        ctx.lineTo(5, 2);
+        ctx.stroke();
+      } else if (item.kind === KIND_LURE) {
+        ctx.beginPath();
+        ctx.arc(0, 0, 4.5, 0, TAU);
+        ctx.fill();
+        ctx.stroke();
+        for (let ring = 1; ring <= 2; ring += 1) {
+          ctx.beginPath();
+          ctx.arc(0, 0, 4.5 + ring * 5.5, 0, TAU);
+          ctx.globalAlpha = 0.6 - ring * 0.2;
+          ctx.stroke();
+          ctx.globalAlpha = 1;
+        }
+      } else {
+        ctx.beginPath();
+        ctx.moveTo(0, 11);
+        ctx.bezierCurveTo(-13, 2, -9, -11, 0, -5);
+        ctx.bezierCurveTo(9, -11, 13, 2, 0, 11);
+        ctx.fill();
+        ctx.stroke();
+      }
+      ctx.restore();
+      return;
+    }
+
     // Rock: a faceted stone, or a long shard, in the stratum's own stone colour.
     const size = item.drawR ?? item.r;
-    const rot = item.rot + state.time * item.spin;
+    const rot = item.rot + state.time * item.spin * (item.kind === KIND_ICEBERG ? 0.35 : 1);
     ctx.save();
     ctx.translate(x, y);
     ctx.rotate(rot);
@@ -394,7 +634,31 @@ export function createRenderer(canvas) {
     ctx.arc(0, 0, size * 0.9, 0, TAU);
     ctx.fillStyle = 'rgba(0,0,0,0.34)';
     ctx.fill();
-    const facets = item.kind === KIND_SHARD ? 5 : 7;
+    const shard = item.kind === KIND_SHARD;
+    const facets = shard ? 5 : item.kind === KIND_ICEBERG ? 6 : 7;
+    if (item.kind === KIND_ICEBERG) {
+      // Ice: a pale body instead of the stratum's stone, so it reads as a different hazard.
+      ctx.beginPath();
+      for (let index = 0; index < facets; index += 1) {
+        const a = (index / facets) * TAU;
+        const r = size * (0.9 + 0.18 * Math.sin(index * 1.7 + item.wobble));
+        const px = Math.cos(a) * r;
+        const py = Math.sin(a) * r * 1.05;
+        if (index === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+      const ice = ctx.createLinearGradient(-size, -size, size, size);
+      ice.addColorStop(0, 'rgba(214,246,255,0.96)');
+      ice.addColorStop(1, 'rgba(96,150,196,0.92)');
+      ctx.fillStyle = ice;
+      ctx.fill();
+      ctx.strokeStyle = alpha('#ffffff', 0.5);
+      ctx.lineWidth = 1.6;
+      ctx.stroke();
+      ctx.restore();
+      return;
+    }
     ctx.beginPath();
     for (let index = 0; index < facets; index += 1) {
       const a = (index / facets) * TAU;
@@ -427,7 +691,7 @@ export function createRenderer(canvas) {
   /** The comet: its trail, its body and its aura, dimmed as the glow runs low. */
   function drawComet(state, palette, alive) {
     if (trail.length === 0) return;
-    const life = Math.max(0, Math.min(1, state.glow / GLOW.max));
+    const life = Math.max(0, Math.min(1, state.glow / (state.maxGlow || GLOW.max)));
     const aura = 0.34 + life * 0.66;
     // The trail, oldest and faintest last.
     for (let index = trail.length - 1; index >= 1; index -= 1) {
@@ -593,6 +857,19 @@ export function createRenderer(canvas) {
     ctx.font = "600 9px 'Segoe UI', 'Helvetica Neue', Arial, sans-serif";
     ctx.fillText(`CORE ${formatNumber(GOAL_DEPTH_M)} m`, pad, 99);
 
+    // The world's own line: which biome, what the sky is doing, and the milestone behind you.
+    // It sits under the rail in the same small type, so the HUD grew a sentence and not a panel.
+    const biome = BIOME_NAMES[state.biome] ?? 'Quiet';
+    const weather = WEATHER_NAMES[state.weather] ?? 'Clear';
+    const mood = weather === 'Clear' ? biome.toUpperCase() : `${biome.toUpperCase()}  ·  ${weather.toUpperCase()}`;
+    drawTag(pad, 112, mood, palette.accent);
+
+    // The milestone sits under the mood, not beside it: a pill's width follows its text, so two
+    // pills on one line overlap the moment either grows.
+    if (state.milestone > 0) {
+      drawTag(pad, 132, `${formatNumber(state.milestone)} M`, alpha('#ffffff', 0.55));
+    }
+
     // Score, top right.
     ctx.textAlign = 'right';
     ctx.fillStyle = INK;
@@ -608,7 +885,7 @@ export function createRenderer(canvas) {
     ctx.letterSpacing = '0px';
 
     // Glow: the comet's life, bottom left, drawn as a comet-shaped gauge.
-    const life = Math.max(0, Math.min(1, state.glow / GLOW.max));
+    const life = Math.max(0, Math.min(1, state.glow / (state.maxGlow || GLOW.max)));
     const gx = pad;
     const gy = VIEW.height - 46;
     ctx.textAlign = 'left';
@@ -632,7 +909,11 @@ export function createRenderer(canvas) {
     }
     ctx.fillStyle = INK;
     ctx.font = "700 12px 'Segoe UI', 'Helvetica Neue', Arial, sans-serif";
-    ctx.fillText(`${Math.ceil(state.glow)}%`, gx + barW + 12, gy + 11);
+    const tank = state.maxGlow || GLOW.max;
+    ctx.fillText(`${Math.ceil((state.glow / tank) * 100)}%`, gx + barW + 12, gy + 11);
+
+    // The powers held: a row of small badges with the seconds they have left.
+    drawPowers(state, palette, gx, gy - 42);
 
     // The chain, bottom right: the multiplier the last motes earned.
     const multi = Math.min(5, 1 + Math.floor(state.chain / 8));
@@ -649,6 +930,54 @@ export function createRenderer(canvas) {
       ctx.letterSpacing = '0px';
     }
 
+    // The combo's judgement, under the multiplier: what the last few seconds were worth.
+    if (state.rating > 0) {
+      ctx.textAlign = 'right';
+      ctx.fillStyle = RATING_COLOURS[state.rating] ?? INK_DIM;
+      ctx.font = "700 11px 'Segoe UI', 'Helvetica Neue', Arial, sans-serif";
+      ctx.letterSpacing = '2.6px';
+      ctx.fillText(RATING_WORDS[state.rating] ?? '', VIEW.width - pad, VIEW.height - 92);
+      ctx.letterSpacing = '0px';
+      if (state.clean > 4) {
+        ctx.fillStyle = INK_FAINT;
+        ctx.font = "600 9px 'Segoe UI', 'Helvetica Neue', Arial, sans-serif";
+        ctx.fillText(`CLEAN ${state.clean.toFixed(1)}s`, VIEW.width - pad, VIEW.height - 78);
+      }
+    }
+
+    // The guardian: a bar across the top and its attack, while the fight is on.
+    if (state.guardian === 1) {
+      const w = VIEW.width * 0.46;
+      const x = (VIEW.width - w) / 2;
+      const y = 22;
+      ctx.textAlign = 'center';
+      ctx.fillStyle = alpha('#ffd2d2', 0.92);
+      ctx.font = "700 11px 'Segoe UI', 'Helvetica Neue', Arial, sans-serif";
+      ctx.letterSpacing = '4px';
+      ctx.fillText('THE GUARDIAN', VIEW.width / 2, y - 6);
+      ctx.letterSpacing = '0px';
+      panel(x, y, w, 8, 4, alpha('#000000', 0.5), alpha('#ff9d9d', 0.35));
+      panel(x, y, Math.max(2, w * Math.max(0, Math.min(1, state.guardianHealth))), 8, 4, '#ff6b6b');
+      ctx.fillStyle = alpha('#ffb9b9', 0.8);
+      ctx.font = "600 9px 'Segoe UI', 'Helvetica Neue', Arial, sans-serif";
+      ctx.letterSpacing = '2px';
+      ctx.fillText('THE ARENA IS CLOSING', VIEW.width / 2, y + 24);
+      ctx.letterSpacing = '0px';
+    }
+
+    // Milestones and guardian beats: a line that says what just happened, briefly.
+    if (bannerTimer > 0 && bannerText) {
+      const t = Math.min(1, bannerTimer / 0.4);
+      ctx.globalAlpha = t;
+      ctx.textAlign = 'center';
+      ctx.fillStyle = bannerColour;
+      ctx.font = "800 20px 'Segoe UI', 'Helvetica Neue', Arial, sans-serif";
+      ctx.letterSpacing = '5px';
+      ctx.fillText(bannerText, VIEW.width / 2, VIEW.height * 0.42);
+      ctx.letterSpacing = '0px';
+      ctx.globalAlpha = 1;
+    }
+
     // A new stratum, announced across the middle for a moment.
     if (state.stratumBanner > 0) {
       const t = Math.min(1, state.stratumBanner / 0.5);
@@ -663,6 +992,105 @@ export function createRenderer(canvas) {
       ctx.font = "600 12px 'Segoe UI', 'Helvetica Neue', Arial, sans-serif";
       ctx.fillText(`STRATUM ${palette.index + 1} OF ${STRATA.length}`, VIEW.width / 2, VIEW.height * 0.30 + 20);
       ctx.globalAlpha = 1;
+    }
+  }
+
+  /** A small stat pill: a capsule with a word in it, and no box around the whole HUD. */
+  function drawTag(x, y, text, colour) {
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.font = "700 9px 'Segoe UI', 'Helvetica Neue', Arial, sans-serif";
+    ctx.letterSpacing = '2px';
+    const w = ctx.measureText(text).width + 14;
+    panel(x, y, w, 15, 7.5, alpha('#000000', 0.3), alpha(colour, 0.4));
+    ctx.fillStyle = colour;
+    ctx.fillText(text, x + 7, y + 8);
+    ctx.letterSpacing = '0px';
+    ctx.textBaseline = 'alphabetic';
+  }
+
+  /** The powers the comet is holding, as badges: name and seconds. */
+  function drawPowers(state, palette, x, y) {
+    const held = [
+      ['SHIELD', state.shields > 0 ? String(state.shields) : '', '#9fe8ff'],
+      ['SLOW', state.slow > 0 ? `${state.slow.toFixed(1)}s` : '', '#b8a8ff'],
+      ['LURE', state.lure > 0 ? `${state.lure.toFixed(1)}s` : '', '#ff9fe0'],
+      ['×2', state.double > 0 ? `${state.double.toFixed(1)}s` : '', '#ffe9a8'],
+    ].filter(([, value]) => value !== '');
+    let cursor = x;
+    for (const [name, value, colour] of held) {
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.font = "700 9px 'Segoe UI', 'Helvetica Neue', Arial, sans-serif";
+      ctx.letterSpacing = '1.6px';
+      const label = `${name} ${value}`;
+      const w = ctx.measureText(label).width + 14;
+      panel(cursor, y, w, 15, 7.5, alpha(colour, 0.14), alpha(colour, 0.55));
+      ctx.fillStyle = colour;
+      ctx.fillText(label, cursor + 7, y + 8);
+      ctx.letterSpacing = '0px';
+      ctx.textBaseline = 'alphabetic';
+      cursor += w + 6;
+      void palette;
+    }
+  }
+
+  /** A short line of text across the middle of the play screen: a milestone, a guardian beat. */
+  let bannerText = '';
+  let bannerTimer = 0;
+  let bannerColour = INK;
+  function banner(text, colour = INK) {
+    bannerText = text;
+    bannerColour = colour;
+    bannerTimer = 1.6;
+  }
+
+  /**
+   * The run's own statistics, under the end screen's scoreboard: depth, chain, clean streak,
+   * near misses, pickups, and the shards the run paid. A record is named in the accent colour.
+   * Drawn only when a run has ended in this visit; a staged shot has no run to summarise.
+   */
+  function drawRunSummary(palette) {
+    if (!runEnd || !Array.isArray(runEnd.rows)) return;
+    const rows = runEnd.rows;
+    const perRow = rows.length > 4 ? Math.ceil(rows.length / 2) : rows.length;
+    const columnW = 190;
+    const left = VIEW.width / 2 - columnW + 20;
+    const startY = VIEW.height - 176;
+    for (let index = 0; index < rows.length; index += 1) {
+      const row = rows[index];
+      const column = Math.floor(index / perRow);
+      const line = index % perRow;
+      const x = left + column * columnW * 2;
+      const y = startY + line * 17;
+      ctx.textAlign = 'left';
+      ctx.fillStyle = row.record ? palette.accent : INK_FAINT;
+      ctx.font = "600 10px 'Segoe UI', 'Helvetica Neue', Arial, sans-serif";
+      ctx.letterSpacing = '2.2px';
+      ctx.fillText(row.label, x, y);
+      ctx.letterSpacing = '0px';
+      ctx.textAlign = 'right';
+      ctx.fillStyle = row.record ? INK : INK_DIM;
+      ctx.font = "700 12px 'Segoe UI', 'Helvetica Neue', Arial, sans-serif";
+      ctx.fillText(row.value, x + 150, y);
+    }
+    // The purse line: what the run paid, and what the book now holds.
+    ctx.textAlign = 'center';
+    ctx.fillStyle = palette.mote;
+    ctx.font = "700 11px 'Segoe UI', 'Helvetica Neue', Arial, sans-serif";
+    ctx.letterSpacing = '2.6px';
+    const earned = `+${runEnd.shards ?? 0} SHARDS`;
+    ctx.fillText(earned, VIEW.width / 2, VIEW.height - 24);
+    ctx.letterSpacing = '0px';
+    if (runEnd.earned && runEnd.earned.length > 0) {
+      const names = runEnd.earned
+        .map((id) => ACHIEVEMENT_NAMES[id] ?? id)
+        .join('  ·  ');
+      ctx.fillStyle = INK_DIM;
+      ctx.font = "600 9px 'Segoe UI', 'Helvetica Neue', Arial, sans-serif";
+      ctx.letterSpacing = '2px';
+      ctx.fillText(names, VIEW.width / 2, VIEW.height - 8);
+      ctx.letterSpacing = '0px';
     }
   }
 
@@ -683,15 +1111,37 @@ export function createRenderer(canvas) {
     ctx.textAlign = 'center';
     ctx.fillStyle = INK;
     ctx.font = "500 19px 'Segoe UI', 'Helvetica Neue', Arial, sans-serif";
-    ctx.fillText('Fall 4,000 metres to the core of a gas giant.', VIEW.width / 2, VIEW.height * 0.53);
+    ctx.fillText('Fall 4,000 metres to the core of a gas giant.', VIEW.width / 2, VIEW.height * 0.50);
     ctx.fillStyle = INK_DIM;
     ctx.font = "400 15px 'Segoe UI', 'Helvetica Neue', Arial, sans-serif";
-    ctx.fillText('Catch light motes. Your glow is your life — and it burns faster the deeper you fall.', VIEW.width / 2, VIEW.height * 0.585);
+    ctx.fillText('Catch light motes. Your glow is your life — and it burns faster the deeper you fall.', VIEW.width / 2, VIEW.height * 0.545);
     ctx.fillStyle = inkFaintColour();
-    ctx.fillText('Strike the walls or the rock and it drains away.', VIEW.width / 2, VIEW.height * 0.618);
+    ctx.fillText('Strike the walls or the rock and it drains away.', VIEW.width / 2, VIEW.height * 0.578);
+
+    // The save's own lines: the biome on offer, the shards in the purse, and today's descent.
+    const details = titleDetails();
+    if (details) {
+      const y = VIEW.height * 0.612;
+      ctx.textAlign = 'center';
+      ctx.fillStyle = palette.accent;
+      ctx.font = "700 10px 'Segoe UI', 'Helvetica Neue', Arial, sans-serif";
+      ctx.letterSpacing = '3px';
+      const daily = details.daily;
+      const dailyText = daily?.played ? `TODAY'S DESCENT  ${formatNumber(daily.best)}` : "TODAY'S DESCENT — UNPLAYED";
+      ctx.fillText(`${details.biome.toUpperCase()} BIOME  ·  ${details.shards} SHARDS  ·  ${details.books.text}  ·  ${dailyText}`, VIEW.width / 2, y);
+      ctx.letterSpacing = '0px';
+      ctx.fillStyle = alpha(palette.accent, 0.62);
+      ctx.font = "400 11px 'Segoe UI', 'Helvetica Neue', Arial, sans-serif";
+      ctx.fillText(details.blurb, VIEW.width / 2, y + 15);
+      ctx.fillStyle = INK_FAINT;
+      ctx.font = "600 9px 'Segoe UI', 'Helvetica Neue', Arial, sans-serif";
+      ctx.letterSpacing = '2px';
+      ctx.fillText('B CHANGE BIOME   ·   D TODAY\'S DESCENT   ·   SHIFT+S SUPPLY', VIEW.width / 2, y + 30);
+      ctx.letterSpacing = '0px';
+    }
 
     // The controls row.
-    const rowY = VIEW.height * 0.71;
+    const rowY = VIEW.height * 0.752;
     drawKey(VIEW.width / 2 - 236, rowY, '←', true);
     drawKey(VIEW.width / 2 - 178, rowY, '→', true);
     ctx.textAlign = 'left';
@@ -818,7 +1268,7 @@ export function createRenderer(canvas) {
     ctx.font = "600 17px 'Segoe UI', 'Helvetica Neue', Arial, sans-serif";
     ctx.fillText('You crossed all five strata and touched the heart of the world.', VIEW.width / 2, VIEW.height * 0.315);
 
-    panel(VIEW.width / 2 - 268, VIEW.height * 0.40, 536, 150, 18, 'rgba(255,252,240,0.88)', alpha('#000000', 0.18));
+    panel(VIEW.width / 2 - 268, VIEW.height * 0.365, 536, 150, 18, 'rgba(255,252,240,0.88)', alpha('#000000', 0.18));
     const rows = [
       ['FINAL SCORE', formatNumber(state.score)],
       ['TIME', formatClock(state.time)],
@@ -826,7 +1276,7 @@ export function createRenderer(canvas) {
       ['ROCK CLEARED', `${state.rocksPassed}`],
     ];
     rows.forEach(([label, value], index) => {
-      const y = VIEW.height * 0.40 + 40 + index * 32;
+      const y = VIEW.height * 0.365 + 40 + index * 32;
       ctx.textAlign = 'left';
       ctx.fillStyle = 'rgba(20,16,8,0.55)';
       ctx.font = "600 12px 'Segoe UI', 'Helvetica Neue', Arial, sans-serif";
@@ -885,8 +1335,10 @@ export function createRenderer(canvas) {
       drawPaused(palette);
     } else if (screen === SCREEN_OVER) {
       drawOver(state, palette, best);
+      drawRunSummary(palette);
     } else if (screen === SCREEN_WIN) {
       drawWin(state, palette, best);
+      drawRunSummary(palette);
     }
   }
 
@@ -904,6 +1356,33 @@ export function createRenderer(canvas) {
   let cometAlive = true;
   function setAlive(alive) {
     cometAlive = alive;
+  }
+
+  /** What the end screen says about the run that just ended. */
+  let runEnd = null;
+  function setRunEnd(summary) {
+    runEnd = summary;
+  }
+
+  /** What the title says about the save: the biome on offer, the shards, the book, the daily. */
+  let titleInfo = null;
+  function setTitleInfo(info) {
+    titleInfo = info;
+  }
+  function titleDetails() {
+    if (!titleInfo) return null;
+    try {
+      return {
+        biome: titleInfo.biome(),
+        blurb: titleInfo.blurb(),
+        shards: titleInfo.shards(),
+        books: titleInfo.books(),
+        daily: titleInfo.daily(),
+        records: titleInfo.records(),
+      };
+    } catch {
+      return null;
+    }
   }
 
   /** Forget the trail, when a run starts over. */
@@ -939,5 +1418,11 @@ export function createRenderer(canvas) {
     frame(world, screen, best);
   }
 
-  return { frame, settle, step, react, setAlive, clearTrail, seedTrail, paletteAt, formatNumber };
+  return {
+    frame, settle, step, react, setAlive, clearTrail, seedTrail, paletteAt, formatNumber, banner,
+    setRunEnd, setTitleInfo, titleDetails,
+    // The shop screen draws its own list, over the world: it gets the ink, the panels and the
+    // palette function, not a second copy of them.
+    ink: { INK, INK_DIM, INK_FAINT, panel, alpha, paletteAt },
+  };
 }

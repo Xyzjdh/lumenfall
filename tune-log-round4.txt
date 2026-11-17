@@ -1,0 +1,67 @@
+warning: unnecessary `unsafe` block
+   --> src/abi.rs:381:5
+    |
+381 |     unsafe { core::ptr::addr_of_mut!(BYTES_SCRATCH) as *mut u8 }
+    |     ^^^^^^ unnecessary `unsafe` block
+    |
+    = note: `#[warn(unused_unsafe)]` (part of `#[warn(unused)]`) on by default
+
+warning: unnecessary `unsafe` block
+   --> src/abi.rs:398:5
+    |
+398 |     unsafe { core::ptr::addr_of_mut!(GAINS_SCRATCH) as *mut f32 }
+    |     ^^^^^^ unnecessary `unsafe` block
+
+warning: `lumenfall-core` (lib) generated 2 warnings
+   Compiling lumenfall-core v0.4.0 (/home/user/work/lumenfall/lumenfall-core)
+    Finished `release` profile [optimized] target(s) in 3.45s
+     Running `target/release/tune loop 40`
+tune: 40 rounds, population 20, elite 5, 24 seeds a round
+round  1/40  round-best   -241.1  best   -241.1  win  81.7%  median  70.1s
+round  2/40  round-best   -309.5  best   -241.1  win  89.2%  median  65.7s
+round  3/40  round-best   -207.3  best   -207.3  win  78.3%  median  67.7s
+round  4/40  round-best   -192.8  best   -192.8  win  82.5%  median  70.6s
+round  5/40  round-best   -182.5  best   -182.5  win  84.2%  median  70.1s
+round  6/40  round-best   -182.5  best   -182.5  win  84.2%  median  70.1s
+round  7/40  round-best   -215.8  best   -182.5  win  75.0%  median  72.4s
+round  8/40  round-best   -182.5  best   -182.5  win  84.2%  median  70.1s
+round  9/40  round-best   -182.5  best   -182.5  win  84.2%  median  70.1s
+round 10/40  round-best   -182.5  best   -182.5  win  84.2%  median  70.1s
+round 11/40  round-best   -182.5  best   -182.5  win  84.2%  median  70.1s
+round 12/40  round-best   -182.5  best   -182.5  win  84.2%  median  70.1s
+round 13/40  round-best   -182.5  best   -182.5  win  84.2%  median  70.1s
+round 14/40  round-best   -182.5  best   -182.5  win  84.2%  median  70.1s
+round 15/40  round-best   -182.5  best   -182.5  win  84.2%  median  70.1s
+round 16/40  round-best   -182.5  best   -182.5  win  84.2%  median  70.1s
+round 17/40  round-best   -182.5  best   -182.5  win  84.2%  median  70.1s
+round 18/40  round-best   -182.5  best   -182.5  win  84.2%  median  70.1s
+round 19/40  round-best   -182.5  best   -182.5  win  84.2%  median  70.1s
+round 20/40  round-best   -182.5  best   -182.5  win  84.2%  median  70.1s
+round 21/40  round-best   -182.5  best   -182.5  win  84.2%  median  70.1s
+round 22/40  round-best   -245.3  best   -182.5  win  89.2%  median  71.9s
+round 23/40  round-best   -182.5  best   -182.5  win  84.2%  median  70.1s
+round 24/40  round-best   -182.5  best   -182.5  win  84.2%  median  70.1s
+round 25/40  round-best   -182.5  best   -182.5  win  84.2%  median  70.1s
+round 26/40  round-best   -182.5  best   -182.5  win  84.2%  median  70.1s
+round 27/40  round-best   -197.3  best   -182.5  win  79.2%  median  70.4s
+round 28/40  round-best   -182.5  best   -182.5  win  84.2%  median  70.1s
+round 29/40  round-best   -182.5  best   -182.5  win  84.2%  median  70.1s
+round 30/40  round-best   -182.5  best   -182.5  win  84.2%  median  70.1s
+round 31/40  round-best   -182.5  best   -182.5  win  84.2%  median  70.1s
+round 32/40  round-best   -182.5  best   -182.5  win  84.2%  median  70.1s
+round 33/40  round-best   -182.5  best   -182.5  win  84.2%  median  70.1s
+round 34/40  round-best   -182.5  best   -182.5  win  84.2%  median  70.1s
+round 35/40  round-best   -182.5  best   -182.5  win  84.2%  median  70.1s
+round 36/40  round-best   -182.5  best   -182.5  win  84.2%  median  70.1s
+round 37/40  round-best   -182.5  best   -182.5  win  84.2%  median  70.1s
+round 38/40  round-best   -182.5  best   -182.5  win  84.2%  median  70.1s
+round 39/40  round-best   -182.5  best   -182.5  win  84.2%  median  70.1s
+round 40/40  round-best   -182.5  best   -182.5  win  84.2%  median  70.1s
+
+best: score -182.5
+score -182.5 | win 84% | median 70.1s | mean 67.9s | depth 3713m | pts 10739 | rocks 7.0 | glow-deaths 16% | closest 65% | danger 2% | walls 0.4%
+  glow_start=95.30243 glow_drain_base=3.2205832 glow_drain_per_mps=0.021569168 glow_mote=8.079243 glow_star=19.578308 glow_stratum_refill=12.547416 mote_gap_start=0.67865074 mote_gap_end=0.46203002 rock_gap_start=1.8659794 rock_gap_end=1.0078076 star_chance=0.25536048 shard_chance=0.42536256 wall_drain=10.495032 rock_drain=23.600006 corridor_base=317.42535 corridor_breathe=36.15672 player_speed=438.01068 speed_start=28.0023 speed_end=96.67151 chain_step=8.577872
+
+gains (json): {"glow_start":95.302429,"glow_drain_base":3.220583,"glow_drain_per_mps":0.021569,"glow_mote":8.079243,"glow_star":19.578308,"glow_stratum_refill":12.547416,"mote_gap_start":0.678651,"mote_gap_end":0.462030,"rock_gap_start":1.865979,"rock_gap_end":1.007808,"star_chance":0.255360,"shard_chance":0.425363,"wall_drain":10.495032,"rock_drain":23.600006,"corridor_base":317.425354,"corridor_breathe":36.156719,"player_speed":438.010681,"speed_start":28.002300,"speed_end":96.671509,"chain_step":8.577872}
+wrote gains.json
+2 restarts, took 370.6s

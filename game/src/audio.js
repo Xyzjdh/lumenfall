@@ -190,6 +190,59 @@ export function createAudio() {
       const when = ctx.currentTime;
       [0, 7].forEach((step, index) => note(scaleNote(0, step), when + index * 0.07, 0.45, 0.12, 'triangle'));
     },
+    /** A pickup that is not light: a soft two-note lift, different from a mote's chime. */
+    pickup() {
+      if (!ensure()) return;
+      const when = ctx.currentTime;
+      note(scaleNote(2, 3), when, 0.34, 0.13, 'triangle');
+      note(scaleNote(2, 10), when + 0.05, 0.30, 0.09, 'triangle');
+    },
+    /** A near miss: air, not a pitch. A short filtered hiss, panned by nothing, quick. */
+    graze() {
+      if (!ensure()) return;
+      thud(0.20, 0.09);
+      note(scaleNote(1, 12), ctx.currentTime, 0.10, 0.05, 'sine');
+    },
+    /** The weather turned: a low sweep that says the sky changed its mind. */
+    weather() {
+      if (!ensure()) return;
+      const when = ctx.currentTime;
+      note(scaleNote(0, 5), when, 0.7, 0.06, 'sine');
+      note(scaleNote(0, 11), when + 0.06, 0.6, 0.05, 'sine');
+    },
+    /** The combo word moved up: a step in the scale, brighter the better. */
+    rating() {
+      if (!ensure()) return;
+      const when = ctx.currentTime;
+      note(scaleNote(3, 4), when, 0.28, 0.10, 'triangle');
+      note(scaleNote(3, 7), when + 0.05, 0.30, 0.08, 'triangle');
+    },
+    /** A milestone: a small bell, once every 500 metres. */
+    milestone() {
+      if (!ensure()) return;
+      const when = ctx.currentTime;
+      [0, 7, 12].forEach((step, index) => note(scaleNote(4, step), when + index * 0.06, 0.6, 0.08, 'sine'));
+    },
+    /** The guardian wakes: a low swell and a struck bell. */
+    guardianStart() {
+      if (!ensure()) return;
+      thud(0.5, 0.9);
+      const when = ctx.currentTime;
+      note(55, when, 1.4, 0.16, 'sawtooth', -40);
+      note(scaleNote(0, -5), when + 0.12, 1.2, 0.12, 'triangle');
+    },
+    /** One of its attacks: a heavy knock, lower than a rock. */
+    guardian() {
+      if (!ensure()) return;
+      thud(0.36, 0.4);
+      note(49, ctx.currentTime, 0.5, 0.12, 'sawtooth', -25);
+    },
+    /** Outlasted: the pressure lifts, on the way up. */
+    guardianEnd() {
+      if (!ensure()) return;
+      const when = ctx.currentTime;
+      [0, 5, 9, 12, 16].forEach((step, index) => note(scaleNote(3, step), when + index * 0.10, 0.9, 0.09, 'triangle'));
+    },
   };
 
   /** Play one named sound, if the player has not muted it and a gesture has happened. */
@@ -218,5 +271,20 @@ export function createAudio() {
     setStratum(stratumIndex);
   }
 
-  return { play, unlock, toggleMute, context, isMuted: () => muted };
+  /**
+   * The weather bends the pad: fog closes the filter, a tailwind opens it, a crosswind detunes
+   * the pair slightly. Called when the weather changes and not per frame, so the pad moves once.
+   */
+  function setWeather(code) {
+    if (!pad || !ctx) return;
+    const now = ctx.currentTime;
+    const open = [600, 520, 860, 380, 700][code] ?? 600;
+    pad.filter.frequency.cancelScheduledValues(now);
+    pad.filter.frequency.linearRampToValueAtTime(open, now + 2.2);
+    const detune = code === 4 ? 26 : 0;
+    pad.b.detune.cancelScheduledValues(now);
+    pad.b.detune.linearRampToValueAtTime(9 + detune, now + 2.2);
+  }
+
+  return { play, unlock, toggleMute, context, setWeather, isMuted: () => muted };
 }

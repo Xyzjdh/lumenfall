@@ -7,6 +7,8 @@
 
 pub mod rng;
 pub mod config;
+pub mod kinds;
+pub mod systems;
 pub mod world;
 pub mod pilot;
 pub mod abi;

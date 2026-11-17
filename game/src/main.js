@@ -11,14 +11,42 @@
 // that scene instead of running the loop, paints it twice and sets window.__shotReady for a
 // screenshot; src/shots.js says what each scene is.
 import { GLOW, STEP, MAX_FRAME, VIEW } from './config.js';
-import { EVENT_HIT, EVENT_MOTE, EVENT_OVER, EVENT_STAR, EVENT_STRATUM, EVENT_WALL, EVENT_WIN } from './world.js';
+import {
+  BIOME_NAMES,
+  EVENT_GRAZE,
+  EVENT_GUARDIAN,
+  EVENT_GUARDIAN_END,
+  EVENT_GUARDIAN_START,
+  EVENT_HIT,
+  EVENT_MILESTONE,
+  EVENT_MOTE,
+  EVENT_OVER,
+  EVENT_PICKUP,
+  EVENT_RATING,
+  EVENT_STAR,
+  EVENT_STRATUM,
+  EVENT_WALL,
+  EVENT_WEATHER,
+  EVENT_WIN,
+} from './world.js';
 import { createWorld, loadCore } from './core.js';
-import { ACTION_BACK, ACTION_CONFIRM, ACTION_MUTE, createInput } from './input.js';
-import { SCREEN_OVER, SCREEN_PAUSED, SCREEN_PLAY, SCREEN_TITLE, SCREEN_WIN, createRenderer } from './render.js';
+import {
+  ACTION_BACK,
+  ACTION_CONFIRM,
+  ACTION_CYCLE_BIOME,
+  ACTION_DAILY,
+  ACTION_MUTE,
+  ACTION_SHOP,
+  ACTION_UP,
+  ACTION_DOWN,
+  createInput,
+} from './input.js';
+import { SCREEN_OVER, SCREEN_PAUSED, SCREEN_PLAY, SCREEN_SHOP, SCREEN_TITLE, SCREEN_WIN, createRenderer } from './render.js';
 import { stageShot } from './shots.js';
 import { createAudio } from './audio.js';
-
-const BEST_KEY = 'lumenfall.best.v1';
+import { openSave } from './save.js';
+import { ACHIEVEMENTS, bookProgress, summarise } from './records.js';
+import { createShop } from './shop.js';
 
 const params = new URLSearchParams(window.location.search);
 const shot = params.get('shot');
@@ -73,20 +101,10 @@ async function loadGains(core) {
   }
 }
 
-function readBest() {
-  try {
-    return Number.parseInt(window.localStorage.getItem(BEST_KEY) ?? '0', 10) || 0;
-  } catch {
-    return 0;
-  }
-}
-
-function saveBest(value) {
-  try {
-    window.localStorage.setItem(BEST_KEY, String(value));
-  } catch {
-    // Storage can be off (private windows): the best then lasts this visit only.
-  }
+// The record book, the shard ledger and the upgrade sheet all live in save.js; this file only
+// reads and writes them. `best` is the score the HUD compares against.
+function readBest(save) {
+  return Math.round(save.save.best.score ?? 0);
 }
 
 /**
@@ -106,10 +124,26 @@ function exposeHook(world) {
     // The rules this build is played by, as the core reports them: what a test or a curious
     // player reads to see the tuning that shipped.
     gains: () => world.readGains(),
+    // The staged-scene hook: a scene that wants a world already in motion steps the core itself
+    // and then asks the page to read the new state back into the objects the renderer draws.
+    sync: () => world.sync?.(),
   };
 }
 
-function runShot(name, world) {
+function runShot(name, world, save) {
+  // A staged scene still shows the save's own lines on the title: the scene is a frame of the
+  // real game, and the title of the real game says what the player has.
+  if (save && window.__lumenfall.core) {
+    const today = window.__lumenfall.core.day_of_epoch(BigInt(Math.floor(Date.now() / 1000))) >>> 0;
+    renderer.setTitleInfo({
+      biome: () => BIOME_NAMES[world.state.biome] ?? 'Quiet',
+      blurb: () => world.biomeBlurb(),
+      shards: () => save.save.shards,
+      books: () => bookProgress(save.save.achievements),
+      daily: () => ({ day: today, best: save.dailyScore(today), played: save.save.lastDaily === today }),
+      records: () => save.save.best,
+    });
+  }
   const scene = stageShot(name, world);
   renderer.seedTrail(world);
   let painted = 0;
@@ -125,13 +159,20 @@ function runShot(name, world) {
   requestAnimationFrame(paint);
 }
 
-function runGame(world) {
+function runGame(world, save, built) {
   const input = createInput(canvas);
+  const shop = createShop(canvas);
   let screen = SCREEN_TITLE;
-  let best = readBest();
+  let best = readBest(save);
   let accumulator = 0;
   let last = performance.now();
   let overTimer = 0;
+  /** Which biome the next run is played in, chosen on the title with B. */
+  let biome = 0;
+  /** Whether the run being played is the daily. */
+  let daily = false;
+  /** Today, in the game's own calendar: the day the daily is keyed to. */
+  let today = 0;
 
   /** Screen readers, and anyone watching the page's text, hear the screen changes. */
   function announce(message) {
@@ -143,16 +184,31 @@ function runGame(world) {
     window.__lumenfall.screen = next;
   }
 
-  function startRun() {
+  function startRun(options = {}) {
+    // The shop's upgrades and the chosen biome are rules, so they are given to the core before
+    // the world is reset: the descent starts from the sheet the player bought.
+    const seedFor = options.daily ? window.__lumenfall.core.daily_seed_of(today) : seed;
+    world.start({ seed: seedFor >>> 0, biome: options.daily ? 0 : biome });
     world.reset();
     renderer.clearTrail();
     renderer.setAlive(true);
     accumulator = 0;
     overTimer = 0;
+    daily = options.daily === true;
     audio.unlock();
     audio.play('start');
     setScreen(SCREEN_PLAY);
-    announce(`Descending. Glow ${GLOW.start} percent. The core is 4,000 metres down.`);
+    const where = BIOME_NAMES[world.state.biome] ?? 'Quiet';
+    announce(options.daily
+      ? `Today's descent. Biome ${where}. The core is 4,000 metres down.`
+      : `Descending. Glow ${Math.ceil(world.state.glow)} percent. ${where} biome. The core is 4,000 metres down.`);
+  }
+
+  /** The shop, opened between runs: it never changes a run already being played. */
+  function openShop() {
+    shop.open({ catalogue: () => built.shop(), saveRef: save, purchase: (index, shards) => built.buy(index, shards) });
+    setScreen(SCREEN_SHOP);
+    announce(`Supply. ${save.save.shards} shards.`);
   }
 
   function toTitle() {
@@ -167,22 +223,84 @@ function runGame(world) {
   function endRun(won) {
     input.releasePointer();
     renderer.setAlive(won);
-    if (world.state.score > best) {
-      best = world.state.score;
-      saveBest(best);
-    }
+    const state = world.state;
+    const run = {
+      score: state.score,
+      depth: state.depth,
+      won,
+      biome: state.biome,
+      bestChain: state.bestChain,
+      bestClean: state.bestClean,
+      grazes: state.grazes,
+      pickups: state.pickups,
+      rockHits: state.rockHits,
+      shieldsSpent: state.shieldsSpent ?? 0,
+      guardianBeaten: state.guardian === 2,
+      time: state.time,
+      daily,
+    };
+    // The book is compared before it is written, so the end screen's records are honest.
+    const before = { ...save.save.best };
+    const broken = save.record(run);
+    const shards = save.pay({ motes: state.motesTaken + state.starsTaken, depth: state.depth, won, grazes: state.grazes, chain: state.bestChain, pickups: state.pickups });
+    const earned = save.award(save.achievementsFor(run));
+    if (daily) save.dailyRecord(today, state.score);
+    save.commit();
+    best = readBest(save);
+    renderer.setRunEnd({ run, broken, shards, earned, rows: summarise(run, before), daily });
     setScreen(won ? SCREEN_WIN : SCREEN_OVER);
     audio.play(won ? 'win' : 'over');
     overTimer = won ? 1.1 : 0.8;
     announce(won
-      ? `You reached the core. Final score ${Math.round(world.state.score)}.`
-      : `Your light went out at ${Math.round(world.state.depth)} metres. Score ${Math.round(world.state.score)}.`);
+      ? `You reached the core. Final score ${Math.round(state.score)}. ${shards} shards.`
+      : `Your light went out at ${Math.round(state.depth)} metres. Score ${Math.round(state.score)}. ${shards} shards.`);
   }
 
   function handleActions(actions) {
     if (actions & ACTION_MUTE) {
       const muted = audio.toggleMute();
+      save.save.muted = muted;
+      save.commit();
       announce(muted ? 'Sound off.' : 'Sound on.');
+    }
+    if (actions & ACTION_CYCLE_BIOME) {
+      if (screen === SCREEN_TITLE) {
+        biome = (biome + 1) % BIOME_NAMES.length;
+        world.start({ seed, biome });
+        world.reset();
+        renderer.clearTrail();
+        announce(`Biome: ${BIOME_NAMES[biome]}. ${world.biomeBlurb()}`);
+      }
+    }
+    if (actions & ACTION_SHOP) {
+      if (screen === SCREEN_TITLE || screen === SCREEN_OVER || screen === SCREEN_WIN) {
+        if (screen === SCREEN_TITLE || overTimer <= 0) openShop();
+      }
+    }
+    if (actions & ACTION_DAILY) {
+      if (screen === SCREEN_TITLE || ((screen === SCREEN_OVER || screen === SCREEN_WIN) && overTimer <= 0)) {
+        startRun({ daily: true });
+      }
+    }
+    if (screen === SCREEN_SHOP) {
+      // The shop takes the arrows, so they cannot steer anything while it is up.
+      if (actions & ACTION_UP) shop.move(-1);
+      if (actions & ACTION_DOWN) shop.move(1);
+      if (actions & ACTION_CONFIRM) {
+        const result = shop.confirm();
+        if (result.bought) {
+          audio.play('pickup');
+          announce(`Bought ${result.entry.name}. ${save.save.shards} shards left.`);
+        }
+      }
+      if (actions & ACTION_BACK) {
+        setScreen(SCREEN_TITLE);
+        world.start({ seed, biome });
+        world.reset();
+        renderer.clearTrail();
+        announce('Lumenfall. Press Space or click to descend.');
+      }
+      return;
     }
     if (actions & ACTION_BACK) {
       if (screen === SCREEN_PLAY) {
@@ -224,6 +342,43 @@ function runGame(world) {
       audio.play('stratum');
       announce(`${STRATUM_NAMES[world.state.stratum] ?? 'A new'} stratum entered.`);
     }
+    if (events & EVENT_PICKUP) {
+      audio.play('pickup');
+      announce(`${world.state.pickups} pickup${world.state.pickups === 1 ? '' : 's'} this run.`);
+    }
+    if (events & EVENT_GRAZE) {
+      audio.play('graze');
+      renderer.banner('CLOSE', 'rgba(255,240,210,0.9)');
+    }
+    if (events & EVENT_WEATHER) {
+      audio.play('weather');
+      audio.setWeather(world.state.weather);
+      renderer.banner(`WIND TURNS — ${world.weatherName().toUpperCase()}`);
+      announce(`The weather turns: ${world.weatherName()}.`);
+    }
+    if (events & EVENT_RATING) {
+      audio.play('rating');
+      const word = world.ratingWord();
+      if (world.state.rating >= 2) renderer.banner(word, 'rgba(255,224,122,0.95)');
+    }
+    if (events & EVENT_MILESTONE) {
+      audio.play('milestone');
+      renderer.banner(`${Math.round(world.state.milestone)} METRES`, 'rgba(226,246,255,0.92)');
+    }
+    if (events & EVENT_GUARDIAN_START) {
+      audio.play('guardianStart');
+      renderer.banner('THE GUARDIAN WAKES', '#ff9d9d');
+      announce('The guardian wakes. The arena closes in.');
+    }
+    if (events & EVENT_GUARDIAN) {
+      audio.play('guardian');
+      renderer.banner(world.guardianAttack(), '#ffb9b9');
+    }
+    if (events & EVENT_GUARDIAN_END) {
+      audio.play('guardianEnd');
+      renderer.banner('THE GUARDIAN LETS GO', '#a8ffb0');
+      announce('The guardian is outlasted. The core is close.');
+    }
     if (events & EVENT_OVER) endRun(false);
     else if (events & EVENT_WIN) endRun(true);
     audio.context(world.state.stratum, world.state.chain);
@@ -236,7 +391,11 @@ function runGame(world) {
     handleActions(input.takeActions());
     if (overTimer > 0) overTimer = Math.max(0, overTimer - Math.min(0.05, (now - last) / 1000 + 0.016));
 
-    if (screen === SCREEN_TITLE) {
+    if (screen === SCREEN_SHOP) {
+      shop.tick(Math.min(0.05, (now - last) / 1000 + 0.016));
+      world.step(STEP, { x: 0, y: 0 }, true);
+      accumulator = 0;
+    } else if (screen === SCREEN_TITLE) {
       // The title's world keeps falling behind the wordmark, so the screen is alive.
       while (accumulator >= STEP) {
         world.step(STEP, { x: 0, y: 0 }, true);
@@ -254,6 +413,11 @@ function runGame(world) {
     if (screen === SCREEN_TITLE) renderer.step(1 / 60, world);
     else if (screen !== SCREEN_PAUSED) renderer.step(1 / 60, world);
     renderer.frame(world, screen, best);
+    if (screen === SCREEN_SHOP) {
+      const { INK, INK_DIM, INK_FAINT, panel, alpha } = renderer.ink;
+      const palette = renderer.paletteAt(world.state.depth);
+      shop.draw(palette, INK, INK_DIM, INK_FAINT, panel, alpha);
+    }
   }
 
   document.addEventListener('visibilitychange', () => {
@@ -264,6 +428,18 @@ function runGame(world) {
     }
   });
 
+  // The day the daily is keyed to: the page's clock, through the core's own calendar.
+  // An i64 crosses the boundary as a BigInt, which is the only way a wasm module takes one.
+  today = window.__lumenfall.core.day_of_epoch(BigInt(Math.floor(Date.now() / 1000))) >>> 0;
+  renderer.setTitleInfo({
+    biome: () => BIOME_NAMES[biome],
+    blurb: () => world.biomeBlurb(),
+    shards: () => save.save.shards,
+    books: () => bookProgress(save.save.achievements),
+    daily: () => ({ day: today, best: save.dailyScore(today), played: save.save.lastDaily === today }),
+    records: () => save.save.best,
+  });
+  if (save.save.muted) audio.toggleMute();
   announce('Lumenfall. Press Space or click to descend.');
   requestAnimationFrame(frame);
 }
@@ -284,16 +460,21 @@ async function boot2() {
     return;
   }
   const gains = await loadGains(core);
+  const save = openSave();
   const built = createWorld(core, seed, gains);
+  // The upgrade sheet the player has bought, handed to the core before the first run is played:
+  // the shop's levels are rules, and a world made without them would be a different game.
+  built.applyUpgrades(save.levels());
   console.info(`LUMENFALL: playing ${gains === null ? 'the compiled build' : 'the tuned build'} (corridor ${core.gains_get(14).toFixed(1)} px, speed ${core.gains_get(16).toFixed(0)} px/s)`);
   const world = built.world;
   // A world of the same shape the script version returned: shots, renderer and hook all read it.
   world.readGains = built.readGains;
+  world.sync = built.sync;
   exposeHook(world);
   window.__lumenfall.core = core;
   window.__lumenfall.abi = 1;
-  if (shot) runShot(shot, world);
-  else runGame(world);
+  if (shot) runShot(shot, world, save);
+  else runGame(world, save, built);
 }
 
 function announce(message) {

@@ -27,23 +27,56 @@
 //   tune baseline             the shipped build's numbers, as the reference point
 //   tune loop [rounds]        the search; 50 rounds by default
 //   tune show <name=value,..> the score of one named build
+//   tune biomes               the shipped build, played in every biome
+//
+// The run under the numbers is the v2 run: biomes, weather, pickups, grazes, the guardian. The
+// harness has to see the game the page sees, or it is tuning last week's game.
 //
 // The whole search is deterministic: it seeds its own RNG, so running it twice on the same
 // machine gives the same answer.
 
 use lumenfall_core::config::{Gains, KNOBS, SHIPPED};
-use lumenfall_core::pilot::{play_run, RunResult};
+use lumenfall_core::pilot::{play_run, play_run_where, RunResult};
 use lumenfall_core::rng::Rng;
 use std::time::Instant;
 
 /// The second the harness allows a run before calling it un-winnable.
 const MAX_RUN_SECONDS: f32 = 150.0;
 
+/// Every biome, played with the shipped gains: the spread the v2 rules actually produce.
+fn biomes() {
+    let seeds = seeds(40);
+    println!("{:9} {:>5} {:>7} {:>7} {:>7} {:>7} {:>6} {:>6} {:>7}", "biome", "win", "median", "mean", "depth", "pts", "pick", "graze", "chain");
+    for id in 0..lumenfall_core::systems::Biome::COUNT {
+        let runs: Vec<RunResult> = seeds
+            .iter()
+            .map(|&s| play_run_where(s, SHIPPED, MAX_RUN_SECONDS, id))
+            .collect();
+        let win = runs.iter().filter(|r| r.won).count() as f32 / runs.len() as f32;
+        let times: Vec<f32> = runs.iter().map(|r| r.time).collect();
+        let depths: Vec<f32> = runs.iter().map(|r| r.depth).collect();
+        let pts: Vec<f32> = runs.iter().map(|r| r.score).collect();
+        println!(
+            "{:9} {:>4.0}% {:>6.1}s {:>6.1}s {:>6.0}m {:>7.0} {:>6.2} {:>6.2} {:>7.1}",
+            lumenfall_core::systems::Biome::from_index(id).name(),
+            win * 100.0,
+            median(times.clone()),
+            mean(&times),
+            mean(&depths),
+            mean(&pts),
+            mean(&runs.iter().map(|r| r.pickups as f32).collect::<Vec<_>>()),
+            mean(&runs.iter().map(|r| r.grazes as f32).collect::<Vec<_>>()),
+            mean(&runs.iter().map(|r| r.best_chain as f32).collect::<Vec<_>>()),
+        );
+    }
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let command = args.first().map(String::as_str).unwrap_or("loop");
     match command {
         "benchmark" => benchmark(),
+        "biomes" => biomes(),
         "baseline" => {
             let report = evaluate(&SHIPPED, &seeds(40));
             println!("{report}");

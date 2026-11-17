@@ -162,6 +162,10 @@ impl Rules {
     pub const SCORE_MOTE: f32 = 12.0;
     pub const SCORE_STAR: f32 = 40.0;
     pub const SCORE_STRATUM: f32 = 250.0;
+    /// A near miss, before the multiplier: nerve is worth something.
+    pub const SCORE_GRAZE: f32 = 40.0;
+    /// The depth milestones, every this many metres.
+    pub const MILESTONE_STEP: f32 = 500.0;
     /// Spawning: how far ahead the world is laid out, and how many motes an arc holds.
     pub const SPAWN_AHEAD_M: f32 = 150.0;
     pub const CLUSTER_MIN: i32 = 4;
